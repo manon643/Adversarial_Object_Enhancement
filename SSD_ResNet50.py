@@ -7,7 +7,7 @@ import glob
 
 class SSDResNet50():
     """ This class contains the components of the ResNet50 Architecture """
-    feature_layers = ['block3', 'block4', 'block5']
+    feature_layers = ['block4', 'block5', 'block6']
 
     def __init__(self):
         """ Constructor for the SSD-ResNet50 Model """
@@ -19,7 +19,7 @@ class SSDResNet50():
         self.anchor_ratios = [[2, .5, 3., 1./3.],
                         [2, .5, 3., 1./3.],
                         [2, .5, 3., 1./3.]]
-        self.feat_shapes = [[28, 28],[14, 14],[7, 7]]
+        self.feat_shapes = [[14, 14], [7, 7], [14,14]]
         self.anchor_steps = [8, 16.5, 33]
         self.img_shape = [224, 224]
         self.batch_size = 8
@@ -61,23 +61,31 @@ class SSDResNet50():
         input_norm = tf.contrib.layers.batch_norm(input, decay = 0.95, center=True, scale=True, is_training=is_training)
         return input_norm
 
-    def _conv2d(self, input_data, shape, bias_shape, stride, filter_id, is_training, padding='SAME'):
+    def _conv2d(self, input, shape, bias_shape, stride, filter_id, is_training, padding='SAME'):
         """ Perform 2D convolution on the input data and apply RELU """
         weights = self.weight_variable(shape, 'weights' + filter_id)
         bias = self.bias_variable(bias_shape, 'bias' + filter_id)
-        output_conv = tf.nn.conv2d(input_data, weights, strides=stride, padding='SAME')
+        output_conv = tf.nn.conv2d(input, weights, strides=stride, padding='SAME')
         output_conv_norm = self._batch_norm(output_conv + bias, filter_id, is_training)      
         return tf.nn.relu(output_conv_norm)
 
-    def _fcl(self, input_data, shape, bias_shape, filter_id, classification_layer=False):
+    def _deconv2d(self, input, shape, bias_shape, output_shape, stride, filter_id, is_training, padding="SAME"):
+        """ Perform a 2D deconvolutional operation to enhance feature maps spatially """
+        weights = self.weight_variable(shape, 'weights' + filter_id)
+        bias = self.bias_variable(bias_shape, 'bias' + filter_id)
+        output_deconv = tf.nn.conv2d_transpose(input, weights, tf.cast([output_shape[0], output_shape[1], output_shape[2], 2 * output_shape[3]], tf.int32), strides=stride, padding='SAME')
+        output_deconv_norm = self._batch_norm(output_deconv + bias, filter_id, is_training)
+        return tf.nn.relu(output_deconv_norm)
+
+    def _fcl(self, input, shape, bias_shape, filter_id, classification_layer=False):
         """ Run a Fully Connected Layer and ReLU if necessary """
         weights = self.weight_variable(shape, 'weights'+  filter_id)
         bias = self.bias_variable(bias_shape, 'bias' + filter_id)
 
         if classification_layer:
-            return tf.matmul(input_data, weights) + bias
+            return tf.matmul(input, weights) + bias
         else:
-            out_fc_layer = tf.reshape(input_data, [-1, shape[0]])
+            out_fc_layer = tf.reshape(input, [-1, shape[0]])
             return tf.nn.relu(tf.matmul(out_fc_layer, weights) + bias)
 
     def resnet50_block(self, input_feature_map, number_bottleneck_channels,
@@ -93,13 +101,13 @@ class SSDResNet50():
         [number_output_channels], stride, 'identity_mapping', is_training)
         return tf.add(identity_mapping, out_3)
 
-    def resnet50_module(self, input_data, number_blocks, number_bottleneck_channels, number_input_channels,
+    def resnet50_module(self, input, number_blocks, number_bottleneck_channels, number_input_channels,
                     number_output_channels, is_training, stride=[1, 2, 2, 1]):
         """ Run a ResNet module consisting of residual blocks """
         for index, block in enumerate(range(number_blocks)):
             if index == 0:
                 with tf.variable_scope('module' + str(index)):
-                    out = self.resnet50_block(input_data, number_bottleneck_channels, number_input_channels,
+                    out = self.resnet50_block(input, number_bottleneck_channels, number_input_channels,
                     number_output_channels, is_training, stride=stride)
             else:
                 with tf.variable_scope('module' + str(index)):
@@ -241,6 +249,12 @@ with tf.variable_scope("ResNetBlock3"):
 with tf.variable_scope("ResNetBlock4"):
     out_5 = net.resnet50_module(out_4, 3, 512, 1024, 2048, is_training)
     endpoints['block5'] = out_5
+with tf.variable_scope("Upsample_1"):
+    pdb.set_trace()
+    out_deconv_1 = net._deconv2d(out_5, [3, 3, 2048, 2048], [2048], tf.shape(out_4), [1, 2, 2, 1], 'deconv3x3', is_training)
+    out_4_1 = net._conv2d(out_4, [1, 1, 1024, 2048], [2048], [1, 1, 1, 1], 'conv1x1', is_training)
+    out_6 = tf.add(out_deconv_1, out_4_1)
+    endpoints['block6'] = out_6
 
 # Perform Detections on the Desired Blocks
 overall_predictions = []
