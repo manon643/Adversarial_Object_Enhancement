@@ -7,20 +7,18 @@ import glob
 
 class SSDResNet50():
     """ This class contains the components of the ResNet50 Architecture """
-    feature_layers = ['block4', 'block5', 'block6']
+    feature_layers = ['block5', 'block6', 'block7']
 
     def __init__(self):
         """ Constructor for the SSD-ResNet50 Model """
         self.number_classes = 9 # +1 for background class
         self.number_iterations = 1000
-        self.anchor_sizes = [(15., 30.),
-                      (45., 60.),
-                      (75., 90.)]
+        self.anchor_sizes = [(75., 90.), (45., 60.), (15., 30.)]
         self.anchor_ratios = [[2, .5, 3., 1./3.],
                         [2, .5, 3., 1./3.],
                         [2, .5, 3., 1./3.]]
-        self.feat_shapes = [[14, 14], [7, 7], [14,14]]
-        self.anchor_steps = [8, 16.5, 33]
+        self.feat_shapes = [[7, 7], [14, 14], [28, 28]]
+        self.anchor_steps = [33, 16.5, 8]
         self.img_shape = [224, 224]
         self.batch_size = 8
         self.number_iterations_dataset = 1000
@@ -73,7 +71,7 @@ class SSDResNet50():
         """ Perform a 2D deconvolutional operation to enhance feature maps spatially """
         weights = self.weight_variable(shape, 'weights' + filter_id)
         bias = self.bias_variable(bias_shape, 'bias' + filter_id)
-        output_deconv = tf.nn.conv2d_transpose(input, weights, tf.cast([output_shape[0], output_shape[1], output_shape[2], 2 * output_shape[3]], tf.int32), strides=stride, padding='SAME')
+        output_deconv = tf.nn.conv2d_transpose(input, weights, output_shape, strides=stride, padding='SAME')
         output_deconv_norm = self._batch_norm(output_deconv + bias, filter_id, is_training)
         return tf.nn.relu(output_deconv_norm)
 
@@ -250,11 +248,15 @@ with tf.variable_scope("ResNetBlock4"):
     out_5 = net.resnet50_module(out_4, 3, 512, 1024, 2048, is_training)
     endpoints['block5'] = out_5
 with tf.variable_scope("Upsample_1"):
-    pdb.set_trace()
-    out_deconv_1 = net._deconv2d(out_5, [3, 3, 2048, 2048], [2048], tf.shape(out_4), [1, 2, 2, 1], 'deconv3x3', is_training)
-    out_4_1 = net._conv2d(out_4, [1, 1, 1024, 2048], [2048], [1, 1, 1, 1], 'conv1x1', is_training)
+    out_deconv_1 = net._deconv2d(out_5, [3, 3, 1024, 2048], [1024], tf.shape(out_4), [1, 2, 2, 1], 'deconv3x3', is_training)
+    out_4_1 = net._conv2d(out_4, [1, 1, 1024, 1024], [1024], [1, 1, 1, 1], 'conv1x1', is_training)
     out_6 = tf.add(out_deconv_1, out_4_1)
     endpoints['block6'] = out_6
+with tf.variable_scope("Upsample_2"):
+    out_deconv_2 = net._deconv2d(out_6, [3, 3, 512, 1024], [512], tf.shape(out_3), [1, 2, 2, 1], 'deconv3x3', is_training)
+    out_3_1 = net._conv2d(out_3, [1, 1, 512, 512], [512], [1, 1, 1, 1], 'conv1x1', is_training)
+    out_7 = tf.add(out_deconv_2, out_3_1)
+    endpoints['block7'] = out_7
 
 # Perform Detections on the Desired Blocks
 overall_predictions = []
@@ -292,8 +294,8 @@ img_names = glob.glob('{}/{}'.format('./prepare_dataset/train_chips_xview', '*.j
 img_names = np.array(img_names)
 np.random.shuffle(img_names)
 with tf.Session() as sess:
-    train_writer = tf.summary.FileWriter('./train', sess.graph)
-    test_writer = tf.summary.FileWriter('./test', sess.graph)
+    train_writer = tf.summary.FileWriter('./train_dssd', sess.graph)
+    test_writer = tf.summary.FileWriter('./test_dssd', sess.graph)
     sess.run(tf.global_variables_initializer())
     for epoch_id in range(0, net.number_iterations):
         for iteration_id in range(0, len(img_names), net.batch_size):
