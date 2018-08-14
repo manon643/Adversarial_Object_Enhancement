@@ -22,7 +22,7 @@ class SSDResNet50():
         self.feat_shapes = [[28, 28],[14, 14],[7, 7]]
         self.anchor_steps = [8, 16.5, 33]
         self.img_shape = [224, 224]
-        self.batch_size = 8
+        self.batch_size = 24
         self.number_iterations_dataset = 1000
         self.buffer_size = 1000
         self.positive_threshold = 0.5
@@ -288,10 +288,14 @@ with tf.Session() as sess:
             except Exception as error:
                 print(error)
                 continue
-            summary, _, loss_value = sess.run([merged, train_op, total_loss], feed_dict={is_training: True, x_train: img_tensor, gt_bboxes[0]: gt_bbox_tensor[0], gt_classes[0]: gt_class_tensor[0], gt_bboxes[1]: gt_bbox_tensor[1], gt_classes[1]: gt_class_tensor[1], gt_bboxes[2]: gt_bbox_tensor[2], gt_classes[2]: gt_class_tensor[2], gt_bboxes[3]: gt_bbox_tensor[3], gt_classes[3]: gt_class_tensor[3], gt_bboxes[4]: gt_bbox_tensor[4], gt_classes[4]: gt_class_tensor[4], gt_bboxes[5]: gt_bbox_tensor[5], gt_classes[5]: gt_class_tensor[5], gt_bboxes[6]: gt_bbox_tensor[6], gt_classes[6]: gt_class_tensor[6], gt_bboxes[7]: gt_bbox_tensor[7], gt_classes[7]: gt_class_tensor[7]})
+            feed_dict = {is_training: True, x_train: img_tensor}
+            for batch_ind in range(net.batch_size):
+                feed_dict.update({gt_bboxes[batch_ind]: gt_bbox_tensor[batch_ind], gt_classes[batch_ind]: gt_class_tensor[batch_ind]})
+            summary, _, loss_value = sess.run([merged, train_op, total_loss], feed_dict=feed_dict)
             train_writer.add_summary(summary, epoch_id * len(img_names) + iteration_id/net.batch_size)
             print("Loss at iteration {} {} : {}".format(epoch_id, iteration_id/net.batch_size, loss_value))
-            
-            if (iteration_id % 10) == 0:   
-                summary, loss_value = sess.run([merged, total_loss], feed_dict={is_training: False, x_train: img_tensor, gt_bboxes[0]: gt_bbox_tensor[0], gt_classes[0]: gt_class_tensor[0], gt_bboxes[1]: gt_bbox_tensor[1], gt_classes[1]: gt_class_tensor[1], gt_bboxes[2]: gt_bbox_tensor[2], gt_classes[2]: gt_class_tensor[2], gt_bboxes[3]: gt_bbox_tensor[3], gt_classes[3]: gt_class_tensor[3], gt_bboxes[4]: gt_bbox_tensor[4], gt_classes[4]: gt_class_tensor[4], gt_bboxes[5]: gt_bbox_tensor[5], gt_classes[5]: gt_class_tensor[5], gt_bboxes[6]: gt_bbox_tensor[6], gt_classes[6]: gt_class_tensor[6], gt_bboxes[7]: gt_bbox_tensor[7], gt_classes[7]: gt_class_tensor[7]})
-                test_writer.add_summary(summary, epoch_id * len(img_names) + iteration_id/net.batch_size)
+
+            if (iteration_id % 500) == 0:
+               feed_dict.update({is_training: False})
+               summary, loss_value = sess.run([merged, total_loss], feed_dict)
+               test_writer.add_summary(summary, epoch_id * len(img_names) + iteration_id/net.batch_size)
