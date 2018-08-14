@@ -4,13 +4,14 @@ import utils
 import pdb
 import math
 import glob
+import argparse
 
-class SSDResNet50():
-    """ This class contains the components of the ResNet50 Architecture """
+class SSDResNet():
+    """ This class contains the components of the resnet Architecture """
     feature_layers = ['block3', 'block4', 'block5']
 
     def __init__(self):
-        """ Constructor for the SSD-ResNet50 Model """
+        """ Constructor for the SSD-resnet Model """
         self.number_classes = 9 # +1 for background class
         self.number_iterations = 1000
         self.anchor_sizes = [(15., 30.),
@@ -66,7 +67,7 @@ class SSDResNet50():
         weights = self.weight_variable(shape, 'weights' + filter_id)
         bias = self.bias_variable(bias_shape, 'bias' + filter_id)
         output_conv = tf.nn.conv2d(input_data, weights, strides=stride, padding='SAME')
-        output_conv_norm = self._batch_norm(output_conv + bias, filter_id, is_training)      
+        output_conv_norm = self._batch_norm(output_conv + bias, filter_id, is_training)
         return tf.nn.relu(output_conv_norm)
 
     def _fcl(self, input_data, shape, bias_shape, filter_id, classification_layer=False):
@@ -80,7 +81,7 @@ class SSDResNet50():
             out_fc_layer = tf.reshape(input_data, [-1, shape[0]])
             return tf.nn.relu(tf.matmul(out_fc_layer, weights) + bias)
 
-    def resnet50_block(self, input_feature_map, number_bottleneck_channels,
+    def resnet_block(self, input_feature_map, number_bottleneck_channels,
     number_input_channels, number_output_channels, is_training, stride=[1, 1, 1, 1]):
         """ Run a ResNet block """
         out_1 = self._conv2d(input_feature_map, [1, 1, number_input_channels, number_bottleneck_channels],
@@ -93,17 +94,17 @@ class SSDResNet50():
         [number_output_channels], stride, 'identity_mapping', is_training)
         return tf.add(identity_mapping, out_3)
 
-    def resnet50_module(self, input_data, number_blocks, number_bottleneck_channels, number_input_channels,
+    def resnet_module(self, input_data, number_blocks, number_bottleneck_channels, number_input_channels,
                     number_output_channels, is_training, stride=[1, 2, 2, 1]):
         """ Run a ResNet module consisting of residual blocks """
         for index, block in enumerate(range(number_blocks)):
             if index == 0:
                 with tf.variable_scope('module' + str(index)):
-                    out = self.resnet50_block(input_data, number_bottleneck_channels, number_input_channels,
+                    out = self.resnet_block(input_data, number_bottleneck_channels, number_input_channels,
                     number_output_channels, is_training, stride=stride)
             else:
                 with tf.variable_scope('module' + str(index)):
-                    out = self.resnet50_block(out, number_bottleneck_channels, number_output_channels,
+                    out = self.resnet_block(out, number_bottleneck_channels, number_output_channels,
                     number_output_channels, is_training, stride=[1, 1, 1, 1])
 
         return out
@@ -173,7 +174,7 @@ class SSDResNet50():
             target_localizations_all = []
             target_scores_all = []
             for batch_index in range(self.batch_size):
-                target_tensor = utils.ssd_bboxes_encode_layer(gt_classes[batch_index], gt_localizations[batch_index], anchors, self.number_classes) 
+                target_tensor = utils.ssd_bboxes_encode_layer(gt_classes[batch_index], gt_localizations[batch_index], anchors, self.number_classes)
                 target_labels_all.append(target_tensor[0])
                 target_localizations_all.append(target_tensor[1])
                 target_scores_all.append(target_tensor[2])
@@ -206,7 +207,7 @@ class SSDResNet50():
                 negatives_only_loss = tf.reduce_sum(tf.gather(loss_neg, indices_hnm))
                 loss_classification_neg = tf.div(negatives_only_loss, self.batch_size)
                 loss_classification_neg = tf.Print(loss_classification_neg, [loss_classification_neg], "-> Negatives Loss")
-                
+
             with tf.name_scope('localization{}'.format(index)):
                 weights = tf.expand_dims(1.0 * tf.to_float(tf.reshape(pos_samples, [self.batch_size, self.feat_shapes[index][0],
                 self.feat_shapes[index][1], len(self.anchor_sizes[index]) * (len(self.anchor_ratios[index]) + 1)])), axis=-1)
@@ -221,81 +222,33 @@ class SSDResNet50():
 
         return overall_loss, positive_loss, negative_loss, loc_loss
 
-# Construct the Graph
-net = SSDResNet50()
-endpoints = {}
-x_train = tf.placeholder(tf.float32, [net.batch_size, net.img_shape[0], net.img_shape[1], 3])
-is_training = tf.placeholder(tf.bool)
-with tf.variable_scope("FirstStageFeatureExtractor") as scope:
-    out_1 = net._conv2d(x_train, [7, 7, 3, 64], [64], [1, 2, 2, 1], 'conv3x3', is_training)
-    out_1_pool = tf.nn.max_pool(out_1, [1, 2, 2, 1], [1, 2, 2, 1], padding='VALID')
-with tf.variable_scope("ResNetBlock1"):
-    out_2 = net.resnet50_module(out_1_pool, 3, 64, 64, 256, is_training, [1, 1, 1, 1])
-    endpoints['block2'] = out_2
-with tf.variable_scope("ResNetBlock2"):
-    out_3 = net.resnet50_module(out_2, 4, 128, 256, 512, is_training)
-    endpoints['block3'] = out_3
-with tf.variable_scope("ResNetBlock3"):
-    out_4 = net.resnet50_module(out_3, 6, 256, 512, 1024, is_training)
-    endpoints['block4'] = out_4
-with tf.variable_scope("ResNetBlock4"):
-    out_5 = net.resnet50_module(out_4, 3, 512, 1024, 2048, is_training)
-    endpoints['block5'] = out_5
+    def construct_backbone_architecture(self, x_train, is_training, endpoints):
+        """ This function construct the backbone architecture to get detection feature maps """
+        with tf.variable_scope("FirstStageFeatureExtractor") as scope:
+            out_1 = self._conv2d(x_train, [7, 7, 3, 64], [64], [1, 2, 2, 1], 'conv3x3', is_training)
+            out_1_pool = tf.nn.max_pool(out_1, [1, 2, 2, 1], [1, 2, 2, 1], padding='VALID')
+        with tf.variable_scope("ResNetBlock1"):
+            out_2 = self.resnet_module(out_1_pool, 3, 64, 64, 256, is_training, [1, 1, 1, 1])
+            endpoints['block2'] = out_2
+        with tf.variable_scope("ResNetBlock2"):
+            out_3 = self.resnet_module(out_2, 4, 128, 256, 512, is_training)
+            endpoints['block3'] = out_3
+        with tf.variable_scope("ResNetBlock3"):
+            out_4 = self.resnet_module(out_3, 6, 256, 512, 1024, is_training)
+            endpoints['block4'] = out_4
+        with tf.variable_scope("ResNetBlock4"):
+            out_5 = self.resnet_module(out_4, 3, 512, 1024, 2048, is_training)
+            endpoints['block5'] = out_5
 
-# Perform Detections on the Desired Blocks
-overall_predictions = []
-overall_anchors = []
-for index, layer in enumerate(net.feature_layers):
-    with tf.variable_scope("PredictionModule{}".format(index)):
-        overall_anchors.append(net.ssd_anchor_box_encoder(index))
-        overall_predictions.append(net.detection_layer(endpoints[layer], index))
+        return endpoints
 
-# Construct the Loss Function and Define Optimizer
-gt_classes = [tf.placeholder(tf.int64, [None]) for _ in range(net.batch_size)]
-gt_bboxes = [tf.placeholder(tf.float32, [None, 4]) for _ in range(net.batch_size)]
-total_loss, positives_loss, negatives_loss, localization_loss = net.loss_function(gt_bboxes, gt_classes, overall_predictions, overall_anchors, net.negatives_ratio)
-optimizer = tf.train.AdamOptimizer(net.learning_rate)
-update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-with tf.control_dependencies(update_ops):
-    train_op = optimizer.minimize(total_loss)
-tf.summary.scalar('total_loss', total_loss)
-tf.summary.scalar('positives_loss', positives_loss)
-tf.summary.scalar('negatives_loss', negatives_loss)
-tf.summary.scalar('localization_loss', localization_loss)
+    def detection_layers(self, endpoints):
+        """ This function perform detections on the desired feature maps """
+        overall_predictions = []
+        overall_anchors = []
+        for index, layer in enumerate(self.feature_layers):
+            with tf.variable_scope("PredictionModule{}".format(index)):
+                overall_anchors.append(self.ssd_anchor_box_encoder(index))
+                overall_predictions.append(self.detection_layer(endpoints[layer], index))
 
-# Decode predictions to the image domain
-eval_scores, eval_bboxes = utils.decode_predictions(overall_predictions, overall_anchors, net.number_classes, tf.constant([0, 0, 1, 1], tf.float32), net.select_threshold)
-
-# Overlay the bounding boxes on the images
-tf_image_overlaid_detected = utils.overlay_bboxes_eval(eval_scores, eval_bboxes, x_train)
-tf_image_overlaid_gt = utils.overlay_bboxes_ground_truth(gt_classes, gt_bboxes, x_train, net.batch_size)
-tf.summary.image("Detected Bounding Boxes", tf_image_overlaid_detected, max_outputs = 20) 
-tf.summary.image("Ground Truth Bounding Boxes", tf_image_overlaid_gt, max_outputs = 20)
-merged = tf.summary.merge_all()
-
-# Execute the graph
-img_names = glob.glob('{}/{}'.format('./prepare_dataset/train_chips_xview', '*.jpeg'))
-img_names = np.array(img_names)
-np.random.shuffle(img_names)
-with tf.Session() as sess:
-    train_writer = tf.summary.FileWriter('./train', sess.graph)
-    test_writer = tf.summary.FileWriter('./test', sess.graph)
-    sess.run(tf.global_variables_initializer())
-    for epoch_id in range(0, net.number_iterations):
-        for iteration_id in range(0, len(img_names), net.batch_size):
-            try:
-                img_tensor, gt_bbox_tensor, gt_class_tensor = utils.batch_reader(img_names, iteration_id, net.label_map, net.img_shape, net.batch_size)
-            except Exception as error:
-                print(error)
-                continue
-            feed_dict = {is_training: True, x_train: img_tensor}
-            for batch_ind in range(net.batch_size):
-                feed_dict.update({gt_bboxes[batch_ind]: gt_bbox_tensor[batch_ind], gt_classes[batch_ind]: gt_class_tensor[batch_ind]})
-            summary, _, loss_value = sess.run([merged, train_op, total_loss], feed_dict=feed_dict)
-            train_writer.add_summary(summary, epoch_id * len(img_names) + iteration_id/net.batch_size)
-            print("Loss at iteration {} {} : {}".format(epoch_id, iteration_id/net.batch_size, loss_value))
-
-            if (iteration_id % 500) == 0:
-               feed_dict.update({is_training: False})
-               summary, loss_value = sess.run([merged, total_loss], feed_dict)
-               test_writer.add_summary(summary, epoch_id * len(img_names) + iteration_id/net.batch_size)
+        return overall_predictions, overall_anchors
