@@ -1,7 +1,6 @@
 import tensorflow as tf
 import numpy as np
 import utils
-import pdb
 import math
 import glob
 import argparse
@@ -62,13 +61,16 @@ class SSDResNet():
         input_norm = tf.contrib.layers.batch_norm(input, decay = 0.95, center=True, scale=True, is_training=is_training)
         return input_norm
 
-    def _conv2d(self, input_data, shape, bias_shape, stride, filter_id, is_training, padding='SAME'):
+    def _conv2d(self, input_data, shape, bias_shape, stride, filter_id, is_training, activation=True, padding='SAME'):
         """ Perform 2D convolution on the input data and apply RELU """
         weights = self.weight_variable(shape, 'weights' + filter_id)
         bias = self.bias_variable(bias_shape, 'bias' + filter_id)
         output_conv = tf.nn.conv2d(input_data, weights, strides=stride, padding='SAME')
-        output_conv_norm = self._batch_norm(output_conv + bias, filter_id, is_training)
-        return tf.nn.relu(output_conv_norm)
+        output_conv_norm = self._batch_norm(tf.add(output_conv, bias), filter_id, is_training)
+        if activation == True:
+            return tf.nn.relu(output_conv_norm)
+        else:
+            return output_conv_norm
 
     def _fcl(self, input_data, shape, bias_shape, filter_id, classification_layer=False):
         """ Run a Fully Connected Layer and ReLU if necessary """
@@ -89,10 +91,15 @@ class SSDResNet():
         out_2 = self._conv2d(out_1, [3, 3, number_bottleneck_channels, number_bottleneck_channels],
         [number_bottleneck_channels], stride, 'conv3x3', is_training)
         out_3 = self._conv2d(out_2, [1, 1, number_bottleneck_channels, number_output_channels],
-        [number_output_channels], [1, 1, 1, 1], 'bottleneck_up', is_training)
-        identity_mapping = self._conv2d(input_feature_map, [1, 1, number_input_channels, number_output_channels],
-        [number_output_channels], stride, 'identity_mapping', is_training)
-        return tf.add(identity_mapping, out_3)
+        [number_output_channels], [1, 1, 1, 1], 'bottleneck_up', is_training, False)
+
+        # Shortcut connection
+        if number_input_channels != number_output_channels:
+            identity_mapping = self._conv2d(input_feature_map, [1, 1, number_input_channels, number_output_channels],
+        [number_output_channels], stride, 'identity_mapping', is_training, False)
+            return tf.nn.relu(tf.add(identity_mapping, out_3))
+        else:
+            return tf.nn.relu(tf.add(input_feature_map, out_3))
 
     def resnet_module(self, input_data, number_blocks, number_bottleneck_channels, number_input_channels,
                     number_output_channels, is_training, stride=[1, 2, 2, 1]):
@@ -106,7 +113,6 @@ class SSDResNet():
                 with tf.variable_scope('module' + str(index)):
                     out = self.resnet_block(out, number_bottleneck_channels, number_output_channels,
                     number_output_channels, is_training, stride=[1, 1, 1, 1])
-
         return out
 
     def ssd_anchor_box_encoder(self, index, dtype=np.float32, offset=0.5):
@@ -137,7 +143,6 @@ class SSDResNet():
                 h[anchor_index+i+1] = self.anchor_sizes[index][temp_index] / self.img_shape[0] / math.sqrt(float(r))
                 w[anchor_index+i+1] = self.anchor_sizes[index][temp_index] / self.img_shape[1] * math.sqrt(float(r))
             anchor_counter += 1
-
         return y, x, h, w
 
     def detection_layer(self, inputs, index):
@@ -160,7 +165,6 @@ class SSDResNet():
         class_predictions = tf.nn.conv2d(net, filter_class, padding="SAME", strides=[1, 1, 1, 1])
         class_predictions = utils.channel_to_last(class_predictions)
         class_predictions = tf.reshape(class_predictions, utils.tensor_shape(class_predictions, 4)[:-1]+[num_anchors, self.number_classes])
-
         return class_predictions, loc_predictions
 
     def loss_function(self, gt_localizations, gt_classes, overall_predictions, overall_anchors, ratio_negatives=3):
@@ -219,7 +223,6 @@ class SSDResNet():
             positive_loss += (loss_classification_pos / (tf.cast(num_pos_samples, tf.float32) + 1e-8))
             negative_loss += (loss_classification_neg / (tf.cast(num_pos_samples, tf.float32) + 1e-8))
             loc_loss += (loss_localization / (tf.cast(num_pos_samples, tf.float32) + 1e-8))
-
         return overall_loss, positive_loss, negative_loss, loc_loss
 
     def construct_backbone_architecture(self, x_train, is_training, endpoints):
@@ -239,7 +242,6 @@ class SSDResNet():
         with tf.variable_scope("ResNetBlock4"):
             out_5 = self.resnet_module(out_4, 3, 512, 1024, 2048, is_training)
             endpoints['block5'] = out_5
-
         return endpoints
 
     def detection_layers(self, endpoints):
@@ -250,5 +252,4 @@ class SSDResNet():
             with tf.variable_scope("PredictionModule{}".format(index)):
                 overall_anchors.append(self.ssd_anchor_box_encoder(index))
                 overall_predictions.append(self.detection_layer(endpoints[layer], index))
-
         return overall_predictions, overall_anchors
