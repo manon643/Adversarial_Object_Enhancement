@@ -7,6 +7,7 @@ import glob
 import argparse
 
 from detectors import SSDResNet
+from resnet import ResNet50
 
 def get_parser():
     """ This function returns a parser object """
@@ -30,7 +31,7 @@ def main():
 
     # Parse the command line args
     args = get_parser().parse_args()
-    
+
     # Construct the Graph
     net = SSDResNet()
     endpoints = {}

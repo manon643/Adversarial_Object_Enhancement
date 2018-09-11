@@ -2,11 +2,11 @@ import tensorflow as tf
 import numpy as np
 import utils
 import math
-import glob
-import argparse
 
-class SSDResNet():
-    """ This class contains the components of the resnet Architecture """
+from resnet import ResNet50
+
+class SSDResNet(ResNet50):
+    """ This class contains the components of the SSD with the ResNet backbone architecture """
     feature_layers = ['block3', 'block4', 'block5']
 
     def __init__(self):
@@ -31,89 +31,6 @@ class SSDResNet():
         self.negatives_ratio = 3
         self.learning_rate = 1e-3
         self.label_map = {'max': 0}
-
-    def variable_summaries(self, var):
-        """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
-        with tf.name_scope('summaries'):
-            mean = tf.reduce_mean(var)
-            tf.summary.scalar('mean', mean)
-            with tf.name_scope('stddev'):
-              stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
-            tf.summary.scalar('stddev', stddev)
-            tf.summary.scalar('max', tf.reduce_max(var))
-            tf.summary.scalar('min', tf.reduce_min(var))
-            tf.summary.histogram('histogram', var)
-
-    def weight_variable(self, shape, filter_name):
-        """ Define the Weights and Initialize Them and Attach to the Summary """
-        weights = tf.get_variable(filter_name, shape=shape, initializer=tf.contrib.layers.xavier_initializer())
-        self.variable_summaries(weights)
-        return weights
-
-    def bias_variable(self, shape, bias_name):
-        """ Define the Biases and Initialize Them and Attach to the Summary """
-        bias = tf.get_variable(bias_name, shape=shape, initializer=tf.contrib.layers.xavier_initializer())
-        self.variable_summaries(bias)
-        return bias
-
-    def _batch_norm(self, input, filter_id, is_training):
-        """ Apply Batch Normalization After Convolution and Before Activation """
-        input_norm = tf.contrib.layers.batch_norm(input, decay = 0.95, center=True, scale=True, is_training=is_training)
-        return input_norm
-
-    def _conv2d(self, input_data, shape, bias_shape, stride, filter_id, is_training, activation=True, padding='SAME'):
-        """ Perform 2D convolution on the input data and apply RELU """
-        weights = self.weight_variable(shape, 'weights' + filter_id)
-        bias = self.bias_variable(bias_shape, 'bias' + filter_id)
-        output_conv = tf.nn.conv2d(input_data, weights, strides=stride, padding='SAME')
-        output_conv_norm = self._batch_norm(tf.add(output_conv, bias), filter_id, is_training)
-        if activation == True:
-            return tf.nn.relu(output_conv_norm)
-        else:
-            return output_conv_norm
-
-    def _fcl(self, input_data, shape, bias_shape, filter_id, classification_layer=False):
-        """ Run a Fully Connected Layer and ReLU if necessary """
-        weights = self.weight_variable(shape, 'weights'+  filter_id)
-        bias = self.bias_variable(bias_shape, 'bias' + filter_id)
-
-        if classification_layer:
-            return tf.matmul(input_data, weights) + bias
-        else:
-            out_fc_layer = tf.reshape(input_data, [-1, shape[0]])
-            return tf.nn.relu(tf.matmul(out_fc_layer, weights) + bias)
-
-    def resnet_block(self, input_feature_map, number_bottleneck_channels,
-    number_input_channels, number_output_channels, is_training, stride=[1, 1, 1, 1]):
-        """ Run a ResNet block """
-        out_1 = self._conv2d(input_feature_map, [1, 1, number_input_channels, number_bottleneck_channels],
-        [number_bottleneck_channels], [1, 1, 1, 1], 'bottleneck_down', is_training)
-        out_2 = self._conv2d(out_1, [3, 3, number_bottleneck_channels, number_bottleneck_channels],
-        [number_bottleneck_channels], stride, 'conv3x3', is_training)
-        out_3 = self._conv2d(out_2, [1, 1, number_bottleneck_channels, number_output_channels],
-        [number_output_channels], [1, 1, 1, 1], 'bottleneck_up', is_training, False)
-
-        # Shortcut connection
-        if number_input_channels != number_output_channels:
-            identity_mapping = self._conv2d(input_feature_map, [1, 1, number_input_channels, number_output_channels],
-        [number_output_channels], stride, 'identity_mapping', is_training, False)
-            return tf.nn.relu(tf.add(identity_mapping, out_3))
-        else:
-            return tf.nn.relu(tf.add(input_feature_map, out_3))
-
-    def resnet_module(self, input_data, number_blocks, number_bottleneck_channels, number_input_channels,
-                    number_output_channels, is_training, stride=[1, 2, 2, 1]):
-        """ Run a ResNet module consisting of residual blocks """
-        for index, block in enumerate(range(number_blocks)):
-            if index == 0:
-                with tf.variable_scope('module' + str(index)):
-                    out = self.resnet_block(input_data, number_bottleneck_channels, number_input_channels,
-                    number_output_channels, is_training, stride=stride)
-            else:
-                with tf.variable_scope('module' + str(index)):
-                    out = self.resnet_block(out, number_bottleneck_channels, number_output_channels,
-                    number_output_channels, is_training, stride=[1, 1, 1, 1])
-        return out
 
     def ssd_anchor_box_encoder(self, index, dtype=np.float32, offset=0.5):
         """ Compute SSD anchor boxes in the domain of feature maps of interest to perform
@@ -224,25 +141,6 @@ class SSDResNet():
             negative_loss += (loss_classification_neg / (tf.cast(num_pos_samples, tf.float32) + 1e-8))
             loc_loss += (loss_localization / (tf.cast(num_pos_samples, tf.float32) + 1e-8))
         return overall_loss, positive_loss, negative_loss, loc_loss
-
-    def construct_backbone_architecture(self, x_train, is_training, endpoints):
-        """ This function construct the backbone architecture to get detection feature maps """
-        with tf.variable_scope("FirstStageFeatureExtractor") as scope:
-            out_1 = self._conv2d(x_train, [7, 7, 3, 64], [64], [1, 2, 2, 1], 'conv3x3', is_training)
-            out_1_pool = tf.nn.max_pool(out_1, [1, 2, 2, 1], [1, 2, 2, 1], padding='VALID')
-        with tf.variable_scope("ResNetBlock1"):
-            out_2 = self.resnet_module(out_1_pool, 3, 64, 64, 256, is_training, [1, 1, 1, 1])
-            endpoints['block2'] = out_2
-        with tf.variable_scope("ResNetBlock2"):
-            out_3 = self.resnet_module(out_2, 4, 128, 256, 512, is_training)
-            endpoints['block3'] = out_3
-        with tf.variable_scope("ResNetBlock3"):
-            out_4 = self.resnet_module(out_3, 6, 256, 512, 1024, is_training)
-            endpoints['block4'] = out_4
-        with tf.variable_scope("ResNetBlock4"):
-            out_5 = self.resnet_module(out_4, 3, 512, 1024, 2048, is_training)
-            endpoints['block5'] = out_5
-        return endpoints
 
     def detection_layers(self, endpoints):
         """ This function perform detections on the desired feature maps """
