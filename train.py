@@ -8,6 +8,7 @@ import argparse
 
 from detectors import SSDResNet
 from resnet import ResNet50
+from performance_evaluation import compute_metrics
 
 def get_parser():
     """ This function returns a parser object """
@@ -75,20 +76,21 @@ def main():
             for iteration_id in range(0, len(img_names), net.batch_size):
                 try:
                     img_tensor, gt_bbox_tensor, gt_class_tensor = utils.batch_reader(img_names, iteration_id, net.label_map, net.img_shape, net.batch_size)
-                except Exception as error:
-                    print(error)
-                    continue
-                feed_dict = {is_training: True, x_train: img_tensor}
-                for batch_ind in range(net.batch_size):
-                    feed_dict.update({gt_bboxes[batch_ind]: gt_bbox_tensor[batch_ind], gt_classes[batch_ind]: gt_class_tensor[batch_ind]})
-                summary, _, loss_value = sess.run([merged, train_op, total_loss], feed_dict=feed_dict)
-                train_writer.add_summary(summary, epoch_id * len(img_names) + iteration_id/net.batch_size)
-                print("Loss at iteration {} {} : {}".format(epoch_id, iteration_id/net.batch_size, loss_value))
+                    feed_dict = {is_training: True, x_train: img_tensor}
 
-                if (iteration_id % args.test_frequency) == 0:
-                   feed_dict.update({is_training: False})
-                   summary, loss_value = sess.run([merged, total_loss], feed_dict=feed_dict)
-                   test_writer.add_summary(summary, epoch_id * len(img_names) + iteration_id/net.batch_size)
+                    for batch_ind in range(net.batch_size):
+                        feed_dict.update({gt_bboxes[batch_ind]: gt_bbox_tensor[batch_ind], gt_classes[batch_ind]: gt_class_tensor[batch_ind]})
+                    summary, _, loss_value = sess.run([merged, train_op, total_loss], feed_dict=feed_dict)
+                    train_writer.add_summary(summary, epoch_id * len(img_names) + iteration_id/net.batch_size)
+                    print("Loss at iteration {} {} : {}".format(epoch_id, iteration_id/net.batch_size, loss_value))
+                except Exception as error:
+                    continue 
+
+            feed_dict.update({is_training: False})
+            summary, loss_value, val_scores, val_bboxes = sess.run([merged, total_loss, eval_scores, eval_bboxes], feed_dict=feed_dict)
+            test_writer.add_summary(summary, epoch_id * len(img_names) + iteration_id/net.batch_size)
+            precision, recall = compute_metrics(val_bboxes, val_scores, gt_bbox_tensor, gt_class_tensor)
+            print('Precision at %50 IOU : {},  Recall at %50 IOU : {}'.format(precision[50], recall[50]))
 
 if __name__ == '__main__':
     main()

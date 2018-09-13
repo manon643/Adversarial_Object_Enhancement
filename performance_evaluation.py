@@ -11,8 +11,7 @@
              --region_aoi_file iran.geojson (optional)
              --region_name Iran (optional)
 """
-from shapely.geometry import box, shape
-from performance_figures import precision_and_recall_figure
+from shapely.geometry import box
 import numpy as np
 import pandas as pd
 import json
@@ -86,7 +85,10 @@ def iou_scores(label_pr, bboxes_pr, scores_pr, bboxes_gt, classes_gt):
             iou.append(iou_pred_gt)
 
         # Select the one that gives maximum IOU
-        iou_all.append(round(max(iou),2))
+        if not iou:
+            iou_all.append(0)
+        else:
+            iou_all.append(round(max(iou),2))
 
     return iou_all
 
@@ -119,9 +121,8 @@ def performance_metric(bboxes_pr, scores_pr, bboxes_gt, classes_gt):
             iou_all[len(iou_all) - 1].append(iou)
 
             # Needed for False Positives and False Negatives
-            pdb.set_trace()
             number_boxes_pr += sum(scores_pr[label_pr][index_img] > 0.5)
-            number_boxes_gt += classes_gt[index_img].shape[0]
+            number_boxes_gt += sum(classes_gt[index_img] == label_pr)
      
         # Compute the overall recall and precision curve
         [precision_class, recall_class] = performance_curve(iou_all, number_boxes_gt, number_boxes_pr)
@@ -141,3 +142,5 @@ def compute_metrics(bboxes_pr, scores_pr, bboxes_gt, classes_gt):
 
     # Compute the precision and recall curves given the predictions and validations from a model
     precision, recall = performance_metric(bboxes_pr, scores_pr, bboxes_gt, classes_gt)
+
+    return precision, recall
