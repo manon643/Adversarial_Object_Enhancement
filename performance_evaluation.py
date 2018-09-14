@@ -1,23 +1,14 @@
 """
-   This script generates a table summarizing the performance of an object detector model.
-   The metrics included in the current stage can be found in the README file.
-
-   Example : python performance_evaluation.py
-             --model_names "faster_rcnn_resnet101,ssd_inception,rfcn_resnet101,faster_rcnn_inception_resnet"
-             --object_size 50 100
-             --annotations_directory ../training_data/ships/v2/visual_chips/
-             --model_directory ../models/ships/v2/visual_chips
-             --output_file ship_detection_evaluation.csv
-             --region_aoi_file iran.geojson (optional)
-             --region_name Iran (optional)
+   This script computes the performance metrics of an object detector model.
+   The metrics considered as of now includes precision, and recall at [0, 100] IoU
+   thresholds.
 """
-from shapely.geometry import box
 import numpy as np
 import pandas as pd
 import json
 import os
-import pdb
 from itertools import chain
+from shapely.geometry import box
 
 def performance_curve(iou_all, number_boxes_gt, number_boxes_pr):
     """ This function computes the precision and recall curve given the iou scores throughout the dataset
@@ -50,9 +41,9 @@ def performance_curve(iou_all, number_boxes_gt, number_boxes_pr):
 
     return [overall_precision_curve, overall_recall_curve]
 
-def iou_scores(label_pr, bboxes_pr, scores_pr, bboxes_gt, classes_gt):
-    """ This function computes the intersection over union between ground truth
-    and predicted bounding box for the image of interest
+def iou_scores(label_pr, bboxes_pr, scores_pr, bboxes_gt, classes_gt, confidence_threshold=0.5):
+    """ This function computes the intersection over union between ground truth 
+        and predicted bounding box for the image of interest
         Input : rect_gt - ground truth bounding boxes in an image in shapely format
                 rect_pr - predicted bounding boxes in an images in shapely format
 
@@ -74,7 +65,7 @@ def iou_scores(label_pr, bboxes_pr, scores_pr, bboxes_gt, classes_gt):
             bbox_pr = box(bbox_pr[0], bbox_pr[1], bbox_pr[2], bbox_pr[3])
 
             # Compute the IOU w.r.t the closest truth
-            if label_pr != classes_gt[index_gt] or scores_pr[index_pr] < 0.5:
+            if label_pr != classes_gt[index_gt] or scores_pr[index_pr] < confidence_threshold:
                 continue
 
             intersection_pred_gt = bbox_gt.intersection(bbox_pr)
@@ -92,7 +83,7 @@ def iou_scores(label_pr, bboxes_pr, scores_pr, bboxes_gt, classes_gt):
 
     return iou_all
 
-def performance_metric(bboxes_pr, scores_pr, bboxes_gt, classes_gt):
+def performance_metric(bboxes_pr, scores_pr, bboxes_gt, classes_gt, confidence_threshold=0.5):
     """ Given the models and predictions on the test data this function assess
         the performances of the given models
     """
@@ -121,7 +112,7 @@ def performance_metric(bboxes_pr, scores_pr, bboxes_gt, classes_gt):
             iou_all[len(iou_all) - 1].append(iou)
 
             # Needed for False Positives and False Negatives
-            number_boxes_pr += sum(scores_pr[label_pr][index_img] > 0.5)
+            number_boxes_pr += sum(scores_pr[label_pr][index_img] > confidence_threshold)
             number_boxes_gt += sum(classes_gt[index_img] == label_pr)
      
         # Compute the overall recall and precision curve
