@@ -22,7 +22,7 @@ class SSDResNet(ResNet50):
         self.feat_shapes = [[28, 28],[14, 14],[7, 7]]
         self.anchor_steps = [8, 16.5, 33]
         self.img_shape = [224, 224]
-        self.batch_size = 2#24
+        self.batch_size = 1#24
         self.number_iterations_dataset = 1000
         self.buffer_size = 1000
         self.positive_threshold = 0.5
@@ -110,7 +110,7 @@ class SSDResNet(ResNet50):
             num_neg_samples = tf.reduce_sum(neg_samples)
 
             target_labels_flattened = tf.reshape(target_labels, [-1])
-            target_labels_flattened = tf.Print(target_labels_flattened, [names[0]], message="NAME:")
+            #target_labels_flattened = tf.Print(target_labels_flattened, [names[0]], message="NAME:")
             predictions_flattened = tf.reshape(predictions[0], [-1, self.number_classes])
             pos_samples_flattened = tf.cast(tf.reshape(pos_samples, [-1]), tf.float32)
             neg_samples_flattened = tf.cast(tf.reshape(neg_samples, [-1]), tf.float32)
@@ -119,7 +119,7 @@ class SSDResNet(ResNet50):
             with tf.name_scope('cross_entropy_pos{}'.format(index)):
                 loss_pos = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=predictions_flattened, labels=target_labels_flattened)
                 positives_only_loss = tf.reduce_sum(loss_pos * pos_samples_flattened)
-                positives_only_loss = tf.Print(positives_only_loss, [index, positives_only_loss], "-> Positives Loss")
+                #positives_only_loss = tf.Print(positives_only_loss, [index, positives_only_loss], "-> Positives Loss")
                 loss_classification_pos = tf.div(positives_only_loss, self.batch_size)
 
             with tf.name_scope('cross_entropy_neg{}'.format(index)):
@@ -128,14 +128,14 @@ class SSDResNet(ResNet50):
                 _, indices_hnm = tf.nn.top_k(loss_neg * neg_samples_flattened, num_hard_negatives, name='hard_negative_mining')
                 negatives_only_loss = tf.reduce_sum(tf.gather(loss_neg, indices_hnm))
                 loss_classification_neg = tf.div(negatives_only_loss, self.batch_size)
-                loss_classification_neg = tf.Print(loss_classification_neg, [index, loss_classification_neg], "-> Negatives Loss")
+                #loss_classification_neg = tf.Print(loss_classification_neg, [index, loss_classification_neg], "-> Negatives Loss")
 
             with tf.name_scope('localization{}'.format(index)):
                 weights = tf.expand_dims(1.0 * tf.to_float(tf.reshape(pos_samples, [self.batch_size, self.feat_shapes[index][0],
                 self.feat_shapes[index][1], len(self.anchor_sizes[index]) * (len(self.anchor_ratios[index]) + 1)])), axis=-1)
                 loss = tf.abs(predictions[1] - target_localizations)
                 loss_localization = tf.div(tf.reduce_sum(loss * weights), self.batch_size)
-                loss_localization = tf.Print(loss_localization, [index, loss_localization], "-> Localization Loss")
+                #loss_localization = tf.Print(loss_localization, [index, loss_localization], "-> Localization Loss")
 
             overall_loss += ((loss_classification_pos + loss_classification_neg + loss_localization) / (tf.cast(num_pos_samples, tf.float32) + 1e-8))
             positive_loss += (loss_classification_pos / (tf.cast(num_pos_samples, tf.float32) + 1e-8))

@@ -89,16 +89,16 @@ def main():
                     print("ITERATION ID", iteration_id)
                     batch_names = img_names[iteration_id:iteration_id+net.batch_size]
                     img_tensor, gt_bbox_tensor, gt_class_tensor = utils.batch_reader(img_names, iteration_id, net.label_map, net.img_shape, net.batch_size)
-                    print("ok")
+                    #print("ok")
                     
                     feed_dict = {is_training: True, x_train: img_tensor, x_names:batch_names}
                     for batch_ind in range(net.batch_size):
                         feed_dict.update({gt_bboxes[batch_ind]: gt_bbox_tensor[batch_ind], gt_classes[batch_ind]: gt_class_tensor[batch_ind]})
-                    print("ok2")
+                    #print("ok2")
                     summary, _, loss_value, bboxes_pr, scores_pr = sess.run([merged, train_op, total_loss, eval_bboxes, eval_scores], feed_dict=feed_dict)
-                    print("ok3")
+                    #print("ok3")
                     train_writer.add_summary(summary, epoch_id * len(img_names) + iteration_id/net.batch_size)
-                    print("ok4")
+                    #print("ok4")
                     precision, recall = compute_metrics(bboxes_pr, scores_pr, gt_bbox_tensor, gt_class_tensor)
                     print("Loss at iteration {} {} : {}".format(epoch_id, iteration_id/net.batch_size, loss_value))
                     print('Training Accuracy at epoch {} iteration {} at %50 IOU : {},  Recall at %50 IOU : {}'.format(epoch_id, iteration_id, precision[50], recall[50]))
