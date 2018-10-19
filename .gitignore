@@ -1,0 +1,5 @@
+*.sh
+*.out
+checkpoints
+*.txt
+__pycache__/

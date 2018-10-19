@@ -525,6 +525,6 @@ def overlay_bboxes_ground_truth(gt_classes, gt_bboxes, tf_image, batch_size=1):
     """ This function draws the bounding boxes on a batch of images """
     draw_bbox_tensor = []
     for batch_ind in range(batch_size):
-        draw_bbox_tensor.append(tf.image.draw_bounding_boxes(tf.expand_dims(tf_image[batch_ind], dim=0), tf.expand_dims(gt_bboxes[batch_ind], dim=0), name="overlay_bboxes"))        
+        draw_bbox_tensor.append(tf.image.draw_bounding_boxes(tf.expand_dims(tf_image[batch_ind], axis=0), tf.expand_dims(gt_bboxes[batch_ind], axis=0), name="overlay_bboxes"))        
     tf_image = tf.concat(draw_bbox_tensor, axis=0)
     return tf_image 
