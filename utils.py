@@ -14,7 +14,7 @@ def class_label_mapper(original_label, label_map):
     else:
        label_map[original_label] = label_map['max'] + 1
        label_map['max'] += 1
-       print(label_map)
+       #print(label_map)
        return label_map[original_label]
 
 def batch_reader(img_names, index, label_map, img_shape, batch_size=1):    

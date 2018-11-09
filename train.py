@@ -68,8 +68,8 @@ def main():
     # Overlay the bounding boxes on the images
     tf_image_overlaid_detected = utils.overlay_bboxes_eval(eval_scores, eval_bboxes, x_train)
     tf_image_overlaid_gt = utils.overlay_bboxes_ground_truth(gt_classes, gt_bboxes, x_train, net.batch_size)
-    tf.summary.image("Detected Bounding Boxes", tf_image_overlaid_detected, max_outputs = 20)
-    tf.summary.image("Ground Truth Bounding Boxes", tf_image_overlaid_gt, max_outputs = 20)
+    tf.summary.image("Detected Bounding Boxes", tf_image_overlaid_detected, max_outputs = 3)
+    tf.summary.image("Ground Truth Bounding Boxes", tf_image_overlaid_gt, max_outputs = 3)
     merged = tf.summary.merge_all()
 
     # Execute the graph
