@@ -11,10 +11,10 @@ from detectors import SSDResNet
 from resnet import ResNet50
 from performance_evaluation import compute_metrics
 
-import ROIPooler
-import SRGAN
+from ROIPooler import ROIPooler
+from SRGAN import SRGAN
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '0'
 
 
 def get_parser():
@@ -38,7 +38,7 @@ def get_parser():
 
 def main():
     img_shape = (224, 224)
-    new_shape = (30, 30)
+    new_shape = (40, 40)
     batch_size = (10)
     learning_rate = 3 * 1e-4
     label_map = {'max': 0}
@@ -58,14 +58,14 @@ def main():
     gt_rois = tf.placeholder(tf.float32, [None, new_shape[0], new_shape[1], 3])
     gt_rois_class = tf.placeholder(tf.int64, [None])
     gt_rois_bboxes = tf.placeholder(tf.float32, [None, 4])
-    is_training = tf.placeholder(tf.bool)
-    global_step = tf.train.global_step()
+    #is_training = tf.placeholder(tf.bool)
+    global_step = tf.train.create_global_step()
 
     # Heat map TODO
     # heat_map_model = HeatMapModel()
     # heat_map = heat_map_model.output(x_train)
     # heat_map_loss = heat_map_model.loss(heat_map, gt_bboxes)
-    # tf.summary.image("Heat Map", heat_map, max_outputs=3)
+    # tf.summary.image("Heat Map", heat_map, max_outputss=3)
     # tf.summary.scalar("Heat_map_loss", heat_map_loss)
 
     # ROI Pooling TODO
@@ -77,26 +77,30 @@ def main():
     # rois = tf.cond(is_training, gt_rois, pr_rois)
 
     # SRGAN TODO
-    srgan = SRGAN()
-    lr_rois = srgan.downsample(gt_rois) #tf.cond(is_training, rois, tf.concat([rois, neg_rois], axis=0))
+    srgan = SRGAN(21)
+    lr_rois = srgan.downsample(gt_rois, (10,10)) #tf.cond(is_training, rois, tf.concat([rois, neg_rois], axis=0))
     hr_rois = gt_rois
-    sr_rois = srgan.generator(lr_rois, is_training=is_training)
+    sr_rois = srgan.generator(lr_rois, is_training=True)#is_training)
+    
+    print("lr_rois SHAPE:", lr_rois.shape)
+    print("hr_rois SHAPE:", hr_rois.shape)
+    print("sr_rois SHAPE:", sr_rois.shape)
+    tf.summary.image("Small images", lr_rois, max_outputs=3)
+    tf.summary.image("Ground truth", gt_rois, max_outputs = 3)
+    tf.summary.image("Super resolution", sr_rois, max_outputs=3)
 
-    tf.summary.image("Small images", lr_rois, max_output=3)
-    tf.summary.image("Ground truth", gt_rois, max_output = 3)
-    tf.summary.image("Super resolution", sr_rois, max_output=3)
+    real_logits, hr_pr_class, hr_pr_bbox = srgan.discriminator(hr_rois, is_training=True)
+    fake_logits, sr_pr_class, sr_pr_bbox = srgan.discriminator(sr_rois, is_training=True, reuse = True)
 
-    real_logits, hr_pr_class, hr_pr_bbox = srgan.discriminate(hr_rois, is_training=is_training)
-    fake_logits, sr_pr_class, sr_pr_bbox = srgan.discriminate(sr_rois, is_training=is_training)
-
-    with tf.namescope("loss_function"):
+    with tf.name_scope("loss_function"):
         # loss_mse = tf.losses.mse_error(hr_rois, sr_rois) #Should we keep this? Not adversarial
         dis_loss_real = tf.losses.sigmoid_cross_entropy(tf.ones_like(real_logits), real_logits)
         dis_loss_fake = tf.losses.sigmoid_cross_entropy(tf.zeros_like(fake_logits), fake_logits)
         gen_loss = tf.losses.sigmoid_cross_entropy(tf.ones_like(fake_logits), fake_logits)
 
         # Classifying loss
-        cls_loss = tf.losses.sigmoid_cross_entropy(gt_rois_class, hr_pr_class)
+        print(hr_pr_class.shape)
+        cls_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=gt_rois_class, logits=hr_pr_class)
         # Localisation loss TODO
         #loc_loss = localization_loss(hr_pr_bbox, gt_rois_bboxes, gt_rois_class)
 
@@ -155,34 +159,37 @@ def main():
 
     # Execute the graph
     img_names = glob.glob('{}/{}'.format(args.train_dir, '*.jpeg'))
+    print("Found {} images in {}".format(len(img_names),args.train_dir))
     img_names = np.array(img_names)
     np.random.shuffle(img_names)
-    with tf.train.MonitoredTrainingSession(checkpoint_dir=args.ckpt_dir, summary_dir=args.summary_dir) as sess:
+    #with tf.train.MonitoredTrainingSession(checkpoint_dir=args.ckpt_dir, summary_dir=args.summary_dir) as sess:
+    with tf.train.MonitoredTrainingSession(checkpoint_dir=args.ckpt_dir) as sess:
         train_writer = tf.summary.FileWriter(os.path.join(args.summary_dir, args.run, "train"), sess.graph)
         test_writer = tf.summary.FileWriter(args.summary_dir, sess.graph)
         for epoch_id in range(0, number_iterations):
             for iteration_id in range(0, len(img_names), batch_size):
-                try:
-                    img_tensor, gt_bbox_tensor, gt_class_tensor = utils.batch_reader(img_names, iteration_id,
-                                                                                     label_map, img_shape,
-                                                                                     batch_size)
-                    roi_pooler = ROIPooler()
-                    rois_tensor, rois_class_tensor, rois_bboxes_tensor = roi_pooler.np_manual_pooling(img_tensor,
-                                                                                                      gt_class_tensor,
-                                                                                                      gt_bbox_tensor)
-                    feed_dict = {is_training: True, gt_rois: rois_tensor, gt_rois_class: rois_class_tensor,
-                                 gt_rois_bboxes: rois_bboxes_tensor}
-                    #Updating
-                     _, gen_loss_value = sess.run([gen_op, gen_loss], feed_dict=feed_dict)
-                    summary, _, dis_loss_value, loss_value = sess.run([merged, dis_op, dis_loss], feed_dict=feed_dict)
-                    train_writer.add_summary(summary, epoch_id * len(img_names) + iteration_id / batch_size)
-                    #precision, recall = compute_metrics(bboxes_pr, scores_pr, gt_bbox_tensor, gt_class_tensor)
-                    print("Loss at iteration {} {} : {} - gen:{} - dis:{}".format(epoch_id, iteration_id / batch_size, loss_value, gen_loss_value, dis_loss_value))
-                    #print('Training Accuracy at epoch {} iteration {} at %50 IOU : {},  Recall at %50 IOU : {}'.format(
-                    #    epoch_id, iteration_id, precision[50], recall[50]))
-                except Exception as error:
-                    print(error)
-                    continue
+                #try:
+                img_tensor, gt_bbox_tensor, gt_class_tensor = utils.batch_reader(img_names, iteration_id,
+                                                                                 label_map, img_shape,
+                                                                                 batch_size)
+                roi_pooler = ROIPooler(img_tensor)
+                rois_tensor, rois_class_tensor, rois_bboxes_tensor = roi_pooler.np_manual_pooling(img_tensor,
+                                                                                                  gt_class_tensor,
+                                                                                                  gt_bbox_tensor)
+                print(rois_tensor.shape, rois_class_tensor.shape, rois_bboxes_tensor.shape)
+                feed_dict = {gt_rois: rois_tensor, gt_rois_class: rois_class_tensor,
+                             gt_rois_bboxes: rois_bboxes_tensor}
+                #Updating
+                _, gen_loss_value = sess.run([gen_op, gen_loss], feed_dict=feed_dict)
+                summary, _, dis_loss_value, loss_value = sess.run([merged, dis_op, dis_loss], feed_dict=feed_dict)
+                train_writer.add_summary(summary, epoch_id * len(img_names) + iteration_id / batch_size)
+                #precision, recall = compute_metrics(bboxes_pr, scores_pr, gt_bbox_tensor, gt_class_tensor)
+                print("Loss at iteration {} {} : {} - gen:{} - dis:{}".format(epoch_id, iteration_id / batch_size, loss_value, gen_loss_value, dis_loss_value))
+                #print('Training Accuracy at epoch {} iteration {} at %50 IOU : {},  Recall at %50 IOU : {}'.format(
+                #    epoch_id, iteration_id, precision[50], recall[50]))
+                #except Exception as error:
+                #    print(error)
+                #    continue
             # feed_dict.update({is_training: False})
             # summary, loss_value, scores_pr, bboxes_pr = sess.run([merged, total_loss, eval_scores, eval_bboxes],
             #                                                      feed_dict=feed_dict)

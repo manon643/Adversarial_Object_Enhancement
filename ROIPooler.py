@@ -1,11 +1,13 @@
 import numpy as np
 import tensorflow as tf
 from PIL import Image, ImageDraw
+from skimage.transform import resize
+
 
 
 class ROIPooler:
-    anchor_size = [(25, 25), (30, 25), (25, 30)]
-    new_size = 30
+    anchor_size = [(35, 35), (40, 35), (35, 40)]
+    new_size = 40
 
     def __init__(self, imgs):
         self.mask = np.zeros_like(imgs)
@@ -25,12 +27,14 @@ class ROIPooler:
         new_classes, [new_batch_size]
         new_bbox, [new_batch_size, 4]
         """
+        print(imgs.shape, len(classes), len(bboxes))
         pooled_imgs, new_classes, new_bboxes = [], [], []
         batch_size = imgs.shape[0]
         for id_img in range(batch_size):
+            print(len(classes[id_img]), len(bboxes[id_img]))
             img = imgs[id_img]
             for j, obj_class in enumerate(classes[id_img]):
-                obj_bbox = bboxes[j]
+                obj_bbox = bboxes[id_img][j]
                 centroid_x = int((obj_bbox[0] + obj_bbox[2]) / 2 * img.shape[1])
                 centroid_y = int((obj_bbox[1] + obj_bbox[3]) / 2 * img.shape[2])
 
@@ -41,9 +45,8 @@ class ROIPooler:
                     max_y = min(img.shape[2], centroid_y + anchor_h // 2)
                     cropped_img = img[min_x:max_x, min_y:max_y, :]
                     self.mask[id_img, min_x:max_x, min_y:max_y, :] = 1
-
-                    img_chip = Image.fromarray(cropped_img)
-                    img_chip.thumbnail((self.new_size, self.new_size), Image.ANTIALIAS)
+                    #print(cropped_img.type)                             
+                    img_chip = resize(cropped_img, (self.new_size, self.new_size), anti_aliasing=True)
                     pooled_imgs.append(img_chip)
 
                     new_classes.append(obj_class)
@@ -56,8 +59,10 @@ class ROIPooler:
                     new_bboxes.append([new_min_x, new_min_y, new_max_x, new_max_y])
 
                     self.number_pos[id_img] += 1
-
-        return np.concatenate(pooled_imgs), np.array(new_classes), np.concatenate(new_bboxes)
+        print(np.sum(self.number_pos))
+        print(len(pooled_imgs), len(new_classes), len(new_bboxes))
+        print(pooled_imgs[0].shape)
+        return np.stack(pooled_imgs), np.array(new_classes), np.stack(new_bboxes)
 
     def neg_pooling(self, imgs, n=2, overlap_cond=0.5):
         neg_pooled_imgs = []
