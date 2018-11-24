@@ -1,7 +1,7 @@
 import tensorflow as tf
-import tensorlayer as tl
+#import tensorlayer as tl
 import numpy as np
-
+from utils import pixel_shuffler
 
 class SRGAN:
 
@@ -24,36 +24,44 @@ class SRGAN:
         g_init = tf.random_normal_initializer(1., 0.02)
         with tf.variable_scope("generator", reuse=reuse) as vs:
             # tl.layers.set_name_reuse(reuse) # remove for TL 1.8.0+
-            n = tl.layers.InputLayer(lr_img, name='in')
-            n = tl.layers.Conv2d(n, 64, (3, 3), (1, 1), act=tf.nn.relu, padding='SAME', W_init=w_init, name='n64s1/c')
+            n = lr_img
+            n = tf.layers.conv2d(n, 64, (3, 3), (1, 1), activation=tf.nn.relu, padding='SAME', kernel_initializer=w_init, name='n64s1/c')
             temp = n
 
             # B residual blocks
-            for i in range(16):
-                nn = tl.layers.Conv2d(n, 64, (3, 3), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                               name='n64s1/c1/%s' % i)
-                nn = tl.layers.BatchNormLayer(nn, act=tf.nn.relu, is_train=is_training, gamma_init=g_init, name='n64s1/b1/%s' % i)
-                nn = tl.layers.Conv2d(nn, 64, (3, 3), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                               name='n64s1/c2/%s' % i)
-                nn = tl.layers.BatchNormLayer(nn, is_train=is_training, gamma_init=g_init, name='n64s1/b2/%s' % i)
-                nn = tl.layers.ElementwiseLayer([n, nn], tf.add, name='b_residual_add/%s' % i)
-                n = nn
+           # for i in range(16):
+           #     net = tf.layers.conv2d(n, 64, (3, 3), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init, bias_initializer=b_init,
+           #                    name='n64s1/c1/%s' % i)
+           #     net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=g_init, name='n64s1/b1/%s' % i)
+           #     net = tf.nn.relu(net)
+           #     net = tf.layers.conv2d(net, 64, (3, 3), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init, bias_initializer=b_init,        name='n64s1/c2/%s' % i)
+           #     net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=g_init, name='n64s1/b2/%s' % i)
+           #     net = tf.nn.relu(net)
+           #     net += n
+           #     n = net
 
-            n = tl.layers.Conv2d(n, 64, (3, 3), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                          name='n64s1/c/m')
-            n = tl.layers.BatchNormLayer(n, is_train=is_training, gamma_init=g_init, name='n64s1/b/m')
-            n = tl.layers.ElementwiseLayer([n, temp], tf.add, name='add3')
+            n = tf.layers.conv2d(n, 64, (3, 3), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init, bias_initializer=b_init,
+                    name='n64s1/c/m')
+            n = tf.layers.batch_normalization(n, training=is_training, gamma_initializer=g_init, name='n64s1/b/m')
+            n = tf.nn.relu(n)
+            n += temp
             # B residual blacks end
 
-            n = tl.layers.Conv2d(n, 256, (3, 3), (1, 1), act=None, padding='SAME', W_init=w_init, name='n256s1/1')
-            n = tl.layers.SubpixelConv2d(n, scale=2, n_out_channel=None, act=tf.nn.relu, name='pixelshufflerx2/1')
+            n = tf.layers.conv2d(n, 256, (3, 3), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init, name='n256s1/1')
+            n = pixel_shuffler(n, scale=2, channels=256, activation=tf.nn.relu, name='pixelshufflerx2/1')
 
-            n = tl.layers.Conv2d(n, 256, (3, 3), (1, 1), act=None, padding='SAME', W_init=w_init, name='n256s1/2')
-            n = tl.layers.SubpixelConv2d(n, scale=2, n_out_channel=None, act=tf.nn.relu, name='pixelshufflerx2/2')
+            n = tf.layers.conv2d(n, 256, (3, 3), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init, name='n256s1/2')
+            n = pixel_shuffler(n, scale=2, channels=256, activation=tf.nn.relu, name='pixelshufflerx2/2')
 
-            sr_img = tl.layers.Conv2d(n, 3, (1, 1), (1, 1), act=tf.nn.tanh, padding='SAME', W_init=w_init, name='out')
-
-        return sr_img.outputs
+            sr_img = tf.layers.conv2d(n, 3, (1, 1), (1, 1), activation=tf.nn.tanh, padding='SAME', kernel_initializer=w_init, name='out')
+            
+            #debug_one = tf.zeros_like(lr_img)
+            #debug = tf.concat([sr_img, debug_one], axis=1)
+            #debug = tf.concat([debug, debug], axis=2)
+            #debug = tf.concat([debug, debug], axis=1)
+            #debug = tf.concat([debug, debug], axis=2)
+            #return debug
+            return sr_img
 
     def discriminator(self, input_images, is_training=True, reuse=False):
         w_init = tf.random_normal_initializer(stddev=0.02)
@@ -63,55 +71,63 @@ class SRGAN:
         lrelu = lambda x: tf.nn.leaky_relu(x, 0.2)
         with tf.variable_scope("discriminator", reuse=reuse):
             #tllayers.set_name_reuse(reuse)
-            net_in = tl.layers.InputLayer(input_images, name='input/images')
-            net_h0 = tl.layers.Conv2d(net_in, df_dim, (4, 4), (2, 2), act=lrelu, padding='SAME', W_init=w_init, name='h0/c')
+            net_in = input_images
+            net_h0 = tf.layers.conv2d(net_in, df_dim, (4, 4), (2, 2), activation=lrelu, padding='SAME', kernel_initializer=w_init, name='h0/c')
 
-            net_h1 = tl.layers.Conv2d(net_h0, df_dim * 2, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init,
-                               b_init=b_init, name='h1/c')
-            net_h1 = tl.layers.BatchNormLayer(net_h1, act=lrelu, is_train=is_training, gamma_init=gamma_init, name='h1/bn')
-            net_h2 = tl.layers.Conv2d(net_h1, df_dim * 4, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init,
-                               b_init=b_init, name='h2/c')
-            net_h2 = tl.layers.BatchNormLayer(net_h2, act=lrelu, is_train=is_training, gamma_init=gamma_init, name='h2/bn')
-            net_h3 = tl.layers.Conv2d(net_h2, df_dim * 8, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init,
-                               b_init=b_init, name='h3/c')
-            net_h3 = tl.layers.BatchNormLayer(net_h3, act=lrelu, is_train=is_training, gamma_init=gamma_init, name='h3/bn')
-            net_h4 = tl.layers.Conv2d(net_h3, df_dim * 16, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init,
-                               b_init=b_init, name='h4/c')
-            net_h4 = tl.layers.BatchNormLayer(net_h4, act=lrelu, is_train=is_training, gamma_init=gamma_init, name='h4/bn')
-            net_h5 = tl.layers.Conv2d(net_h4, df_dim * 32, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init,
-                               b_init=b_init, name='h5/c')
-            net_h5 = tl.layers.BatchNormLayer(net_h5, act=lrelu, is_train=is_training, gamma_init=gamma_init, name='h5/bn')
-            net_h6 = tl.layers.Conv2d(net_h5, df_dim * 16, (1, 1), (1, 1), act=None, padding='SAME', W_init=w_init,
-                               b_init=b_init, name='h6/c')
-            net_h6 = tl.layers.BatchNormLayer(net_h6, act=lrelu, is_train=is_training, gamma_init=gamma_init, name='h6/bn')
-            net_h7 = tl.layers.Conv2d(net_h6, df_dim * 8, (1, 1), (1, 1), act=None, padding='SAME', W_init=w_init,
-                               b_init=b_init, name='h7/c')
-            net_h7 = tl.layers.BatchNormLayer(net_h7, is_train=is_training, gamma_init=gamma_init, name='h7/bn')
+            net_h1 = tf.layers.conv2d(net_h0, df_dim * 2, (4, 4), (2, 2), activation=None, padding='SAME', kernel_initializer=w_init,
+                    bias_initializer=b_init, name='h1/c')
+            net_h1 = tf.layers.batch_normalization(net_h1, training=is_training, gamma_initializer=gamma_init, name='h1/bn')
+            net_h1 = lrelu(net_h1)
+            net_h2 = tf.layers.conv2d(net_h1, df_dim * 4, (4, 4), (2, 2), activation=None, padding='SAME', kernel_initializer=w_init,
+                    bias_initializer=b_init, name='h2/c')
+            net_h2 = tf.layers.batch_normalization(net_h2, training=is_training, gamma_initializer=gamma_init, name='h2/bn')
+            net_h2 = lrelu(net_h2)
+            net_h3 = tf.layers.conv2d(net_h2, df_dim * 8, (4, 4), (2, 2), activation=None, padding='SAME', kernel_initializer=w_init,
+                    bias_initializer=b_init, name='h3/c')
+            net_h3 = tf.layers.batch_normalization(net_h3, training=is_training, gamma_initializer=gamma_init, name='h3/bn')
+            net_h3 = lrelu(net_h3)
+            net_h4 = tf.layers.conv2d(net_h3, df_dim * 16, (4, 4), (2, 2), activation=None, padding='SAME', kernel_initializer=w_init,
+                    bias_initializer=b_init, name='h4/c')
+            net_h4 = tf.layers.batch_normalization(net_h4, training=is_training, gamma_initializer=gamma_init, name='h4/bn')
+            net_h4 = lrelu(net_h4)
+            net_h5 = tf.layers.conv2d(net_h4, df_dim * 32, (4, 4), (2, 2), activation=None, padding='SAME', kernel_initializer=w_init,
+                    bias_initializer=b_init, name='h5/c')
+            net_h5 = tf.layers.batch_normalization(net_h5, training=is_training, gamma_initializer=gamma_init, name='h5/bn')
+            net_h5 = lrelu(net_h5)
+            net_h6 = tf.layers.conv2d(net_h5, df_dim * 16, (1, 1), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init,
+                    bias_initializer=b_init, name='h6/c')
+            net_h6 = tf.layers.batch_normalization(net_h6, training=is_training, gamma_initializer=gamma_init, name='h6/bn')
+            net_h6 = lrelu(net_h6)
+            net_h7 = tf.layers.conv2d(net_h6, df_dim * 8, (1, 1), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init,
+                    bias_initializer=b_init, name='h7/c')
+            net_h7 = tf.layers.batch_normalization(net_h7, training=is_training, gamma_initializer=gamma_init, name='h7/bn')
 
-            net = tl.layers.Conv2d(net_h7, df_dim * 2, (1, 1), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                            name='res/c')
-            net = tl.layers.BatchNormLayer(net, act=lrelu, is_train=is_training, gamma_init=gamma_init, name='res/bn')
-            net = tl.layers.Conv2d(net, df_dim * 2, (3, 3), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                            name='res/c2')
-            net = tl.layers.BatchNormLayer(net, act=lrelu, is_train=is_training, gamma_init=gamma_init, name='res/bn2')
-            net = tl.layers.Conv2d(net, df_dim * 8, (3, 3), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                            name='res/c3')
-            net = tl.layers.BatchNormLayer(net, is_train=is_training, gamma_init=gamma_init, name='res/bn3')
+            net = tf.layers.conv2d(net_h7, df_dim * 2, (1, 1), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init, bias_initializer=b_init,
+                    name='res/c')
+            net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=gamma_init, name='res/bn')
+            net = lrelu(net)
+            net = tf.layers.conv2d(net, df_dim * 2, (3, 3), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init, bias_initializer=b_init,
+                    name='res/c2')
+            net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=gamma_init, name='res/bn2')
+            net = lrelu(net)
+            net = tf.layers.conv2d(net, df_dim * 8, (3, 3), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init, bias_initializer=b_init,
+                    name='res/c3')
+            net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=gamma_init, name='res/bn3')
 
             ### Branch 1
-            net_h8 = tl.layers.ElementwiseLayer([net_h7, net], combine_fn=tf.add, name='res/add')
-            net_h8.outputs = tl.act.lrelu(net_h8.outputs, 0.2)
+            net_h8 = net_h7 + net
+            net_h8 = lrelu(net_h8)
 
-            net_ho = tl.layers.FlattenLayer(net_h8, name='ho/flatten')
-            net_ho = tl.layers.DenseLayer(net_ho, n_units=1, act=tf.identity, W_init=w_init, name='ho/dense')
-            logits = net_ho.outputs
+            net_ho = tf.layers.flatten(net_h8, name='ho/flatten')
+            net_ho = tf.layers.dense(net_ho, units=1, activation=None, kernel_initializer=w_init, name='ho/dense')
+            logits = net_ho
 
             ### Branch 2
-            net_b2 = tl.layers.FlattenLayer(net, name='b2/flatten')
-            net_b2 = tl.layers.DenseLayer(net_b2, n_units=self.n_classes+4, act=tf.sigmoid, W_init=w_init, name='b2/dense')
+            net_b2 = tf.layers.flatten(net, name='b2/flatten')
+            net_b2 = tf.layers.dense(net_b2, units=self.n_classes+4, activation=tf.sigmoid, kernel_initializer=w_init, name='b2/dense')
 
             # Splitting
-            img_class = net_b2.outputs[:, 4:]
-            img_bbox = net_b2.outputs[:, :4]
+            img_class = net_b2[:, 4:]
+            img_bbox = net_b2[:, :4]
 
         return logits, img_class, img_bbox

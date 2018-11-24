@@ -527,4 +527,27 @@ def overlay_bboxes_ground_truth(gt_classes, gt_bboxes, tf_image, batch_size=1):
     for batch_ind in range(batch_size):
         draw_bbox_tensor.append(tf.image.draw_bounding_boxes(tf.expand_dims(tf_image[batch_ind], axis=0), tf.expand_dims(gt_bboxes[batch_ind], axis=0), name="overlay_bboxes"))        
     tf_image = tf.concat(draw_bbox_tensor, axis=0)
-    return tf_image 
+    return tf_image
+
+
+ 
+def _phase_shift(I, r):
+    # Helper function with main phase shift operation
+    bsize, a, b, c = I.get_shape().as_list()
+    X = tf.reshape(I, [-1, a, b, r, r])
+    X = tf.transpose(X, (0, 1, 2, 4, 3))  # bsize, a, b, 1, 1
+    X = tf.split(X, a, axis=1)  # a, [bsize, b, r, r]
+    X = tf.concat([tf.squeeze(x) for x in X], 2)  # bsize, b, a*r, r
+    X = tf.split(X, b, axis=1)  # b, [bsize, a*r, r]
+    X = tf.concat([tf.squeeze(x) for x in X], 2)  #bsize, a*r, b*r
+    return tf.reshape(X, [-1, a*r, b*r, 1])
+
+def pixel_shuffler(X, scale, channels, activation=tf.identity, name=None):
+    # Main OP that you can arbitrarily use in you tensorflow code
+    if channels>1:
+        Xc = tf.split(X, channels//(scale**2), axis=3)
+        X = tf.concat([_phase_shift(x, scale) for x in Xc], axis=3)
+    else:
+        X = _phase_shift(X, r)
+    return activation(X, name=name)
+

@@ -85,12 +85,12 @@ def main():
     print("lr_rois SHAPE:", lr_rois.shape)
     print("hr_rois SHAPE:", hr_rois.shape)
     print("sr_rois SHAPE:", sr_rois.shape)
-    tf.summary.image("Small images", lr_rois, max_outputs=3)
-    tf.summary.image("Ground truth", gt_rois, max_outputs = 3)
+    tf.summary.image("Small images", 255*lr_rois, max_outputs=3)
+    tf.summary.image("Ground truth", 255*gt_rois, max_outputs = 3)
     tf.summary.image("Super resolution", sr_rois, max_outputs=3)
 
-    real_logits, hr_pr_class, hr_pr_bbox = srgan.discriminator(hr_rois, is_training=True)
-    fake_logits, sr_pr_class, sr_pr_bbox = srgan.discriminator(sr_rois, is_training=True, reuse = True)
+    fake_logits, sr_pr_class, sr_pr_bbox = srgan.discriminator(sr_rois, is_training=True)
+    real_logits, hr_pr_class, hr_pr_bbox = srgan.discriminator(hr_rois, is_training=True, reuse=True)
 
     with tf.name_scope("loss_function"):
         # loss_mse = tf.losses.mse_error(hr_rois, sr_rois) #Should we keep this? Not adversarial
@@ -100,8 +100,9 @@ def main():
 
         # Classifying loss
         print(hr_pr_class.shape)
-        cls_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=gt_rois_class, logits=hr_pr_class)
-        # Localisation loss TODO
+        cls_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=gt_rois_class, logits=hr_pr_class))
+        print("CLASS LOSS", cls_loss.shape)
+         # Localisation loss TODO
         #loc_loss = localization_loss(hr_pr_bbox, gt_rois_bboxes, gt_rois_class)
 
         dis_loss = cls_loss + dis_loss_fake + dis_loss_real #+ loc_loss
@@ -163,7 +164,7 @@ def main():
     img_names = np.array(img_names)
     np.random.shuffle(img_names)
     #with tf.train.MonitoredTrainingSession(checkpoint_dir=args.ckpt_dir, summary_dir=args.summary_dir) as sess:
-    with tf.train.MonitoredTrainingSession(checkpoint_dir=args.ckpt_dir) as sess:
+    with tf.train.MonitoredTrainingSession(checkpoint_dir=os.path.join(args.ckpt_dir, args.run)) as sess:
         train_writer = tf.summary.FileWriter(os.path.join(args.summary_dir, args.run, "train"), sess.graph)
         test_writer = tf.summary.FileWriter(args.summary_dir, sess.graph)
         for epoch_id in range(0, number_iterations):
@@ -176,12 +177,12 @@ def main():
                 rois_tensor, rois_class_tensor, rois_bboxes_tensor = roi_pooler.np_manual_pooling(img_tensor,
                                                                                                   gt_class_tensor,
                                                                                                   gt_bbox_tensor)
-                print(rois_tensor.shape, rois_class_tensor.shape, rois_bboxes_tensor.shape)
+                #print(rois_tensor.shape, rois_class_tensor.shape, rois_bboxes_tensor.shape)
                 feed_dict = {gt_rois: rois_tensor, gt_rois_class: rois_class_tensor,
                              gt_rois_bboxes: rois_bboxes_tensor}
                 #Updating
                 _, gen_loss_value = sess.run([gen_op, gen_loss], feed_dict=feed_dict)
-                summary, _, dis_loss_value, loss_value = sess.run([merged, dis_op, dis_loss], feed_dict=feed_dict)
+                summary, _, dis_loss_value, loss_value = sess.run([merged, dis_op, dis_loss, total_loss], feed_dict=feed_dict)
                 train_writer.add_summary(summary, epoch_id * len(img_names) + iteration_id / batch_size)
                 #precision, recall = compute_metrics(bboxes_pr, scores_pr, gt_bbox_tensor, gt_class_tensor)
                 print("Loss at iteration {} {} : {} - gen:{} - dis:{}".format(epoch_id, iteration_id / batch_size, loss_value, gen_loss_value, dis_loss_value))

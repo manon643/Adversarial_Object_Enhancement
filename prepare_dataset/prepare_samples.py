@@ -7,6 +7,7 @@ import argparse
 import glob
 import os
 import pdb
+import sys
 
 def get_parser():
     """ This function returns a parser object """
@@ -54,20 +55,28 @@ def ground_truth_parser(parent_img_name, chip_name, ground_truth, coords, crop_s
         bbox, label = obj
         x_center = (bbox[0]+bbox[2])/2
         y_center = (bbox[1]+bbox[3])/2
+        assert bbox[0]<bbox[2]
+        assert bbox[1]<bbox[3]
+        #if (bbox[2]-bbox[0])*(bbox[3]-bbox[1])>0.2:
+        #    continue
         #center of box inside the cropped image 
         if x_center>= coords[0] and y_center>= coords[1]:
             if x_center<= coords[2] and y_center<= coords[3]:
-                x_min = max((float(bbox[0]) - offset_col) / float(crop_size), 0)
-                y_min = max((float(bbox[1]) - offset_row) / float(crop_size), 0)
-                x_max = min((float(bbox[2]) - offset_col) / float(crop_size), 1)
-                y_max = min((float(bbox[3]) - offset_row) / float(crop_size), 1)
+                x_min = max((float(bbox[0]) - offset_row) / float(crop_size), 0)
+                y_min = max((float(bbox[1]) - offset_col) / float(crop_size), 0)
+                x_max = min((float(bbox[2]) - offset_row) / float(crop_size), 1)
+                assert x_max>=0
+                y_max = min((float(bbox[3]) - offset_col) / float(crop_size), 1)
                 chip_ground_truth.append([[x_min, y_min, x_max, y_max], label])
-    with open('{}{}'.format(os.path.splitext(chip_name)[0], '.json'), 'w') as output_file:
-        json.dump(chip_ground_truth, output_file)
+    if not chip_ground_truth:
+        os.remove(chip_name)
+    else :
+        with open('{}{}'.format(os.path.splitext(chip_name)[0], '.json'), 'w') as output_file:
+            json.dump(chip_ground_truth, output_file)
 
 def function_img(chip_size, output_dir):
     def aux(parent_img_name):
-        print("Treating", parent_img_name)
+        #print("Treating", parent_img_name)
         chipper = image_chipper(parent_img_name, chip_size, output_dir)
         with open(os.path.splitext(parent_img_name)[0]+".json", 'r') as annot_file:
             ground_truth = json.load(annot_file)
@@ -83,4 +92,5 @@ if __name__ == '__main__':
     #for img in imgs_name:
     #    aux(img)
     with Pool(10) as p:
-        p.map(aux, imgs_name)
+        for i,_ in enumerate(p.imap(aux, imgs_name)):
+            sys.stderr.write('\rdone {0:%}'.format(float(i)/len(imgs_name)))
