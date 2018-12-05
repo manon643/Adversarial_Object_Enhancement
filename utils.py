@@ -17,6 +17,30 @@ def class_label_mapper(original_label, label_map):
        #print(label_map)
        return label_map[original_label]
 
+def batch_reader_list(img_names, index, label_map, img_shape, batch_size=1):    
+    """ Gets the names of the files and ground truth for images and converts them
+        to a tf object.
+    """
+    img_list = []
+    ground_truth_all_classes = []
+    ground_truth_all_bboxes = []
+    for batch_index in range(0, batch_size):
+        img = np.asarray(Image.open(img_names[index+batch_index]))
+        img_list.append(img)
+        ground_truth_name = '{}.{}'.format(os.path.splitext(img_names[index+batch_index])[0], 'json')
+        with open(ground_truth_name) as f:
+            ground_truth = json.load(f)
+
+        ground_truth_class_tensor = np.zeros((len(ground_truth)), np.int64)
+        ground_truth_bbox_tensor = np.zeros((len(ground_truth), 4), np.float32)
+        for ind, gt_inn in enumerate(ground_truth):
+            ground_truth_class_tensor[ind] = class_label_mapper(gt_inn[1], label_map)
+            ground_truth_bbox_tensor[ind, :] = [gt_inn[0][1], gt_inn[0][0], gt_inn[0][3], gt_inn[0][2]]
+        ground_truth_all_bboxes.append(ground_truth_bbox_tensor)
+        ground_truth_all_classes.append(ground_truth_class_tensor)
+
+    return img_list, ground_truth_all_bboxes, ground_truth_all_classes
+
 def batch_reader(img_names, index, label_map, img_shape, batch_size=1):    
     """ Gets the names of the files and ground truth for images and converts them
         to a tf object.
@@ -514,6 +538,19 @@ def tensor_shape(x, rank=3):
         return [s if s is not None else d
                 for s, d in zip(static_shape, dynamic_shape)]
 
+def overlay_bboxes(bboxes, tf_image):
+    """ This function draws the bounding boxes on a batch of images """
+    tf_image  = tf.image.draw_bounding_boxes(tf_image, tf.expand_dims(bboxes, axis=1), name="overlay_bboxes")
+
+    return tf_image
+
+def adapt_overlay_bboxes_pred(bboxes, tf_image):
+    """ This function draws the bounding boxes on a batch of images """
+    new_bboxes_list = [bboxes[:, 0], bboxes[:, 1], tf.exp(bboxes[:, 2]) + bboxes[:, 0], tf.exp(bboxes[:, 3]) + bboxes[:, 1]]
+    bboxes = tf.stack(new_bboxes_list, axis=1)
+    tf_image  = tf.image.draw_bounding_boxes(tf_image, tf.expand_dims(bboxes, axis=1), name="overlay_bboxes")
+    return tf_image
+
 def overlay_bboxes_eval(detection_scores, detection_bboxes, tf_image):
     """ This function draws the bounding boxes on a batch of images """
     for class_index in detection_bboxes:
@@ -531,23 +568,33 @@ def overlay_bboxes_ground_truth(gt_classes, gt_bboxes, tf_image, batch_size=1):
 
 
  
-def _phase_shift(I, r):
+def _phase_shift(X, r):
     # Helper function with main phase shift operation
-    bsize, a, b, c = I.get_shape().as_list()
-    X = tf.reshape(I, [-1, a, b, r, r])
-    X = tf.transpose(X, (0, 1, 2, 4, 3))  # bsize, a, b, 1, 1
-    X = tf.split(X, a, axis=1)  # a, [bsize, b, r, r]
-    X = tf.concat([tf.squeeze(x) for x in X], 2)  # bsize, b, a*r, r
-    X = tf.split(X, b, axis=1)  # b, [bsize, a*r, r]
-    X = tf.concat([tf.squeeze(x) for x in X], 2)  #bsize, a*r, b*r
-    return tf.reshape(X, [-1, a*r, b*r, 1])
+    return tf.depth_to_space(X, r)
 
 def pixel_shuffler(X, scale, channels, activation=tf.identity, name=None):
     # Main OP that you can arbitrarily use in you tensorflow code
     if channels>1:
         Xc = tf.split(X, channels//(scale**2), axis=3)
         X = tf.concat([_phase_shift(x, scale) for x in Xc], axis=3)
-    else:
-        X = _phase_shift(X, r)
     return activation(X, name=name)
+#def _phase_shift(I, r):
+#    # Helper function with main phase shift operation
+#    bsize, a, b, c = I.get_shape().as_list()
+#    X = tf.reshape(I, [-1, a, b, r, r])
+#    X = tf.transpose(X, (0, 1, 2, 4, 3))  # bsize, a, b, 1, 1
+#    X = tf.split(X, a, axis=1)  # a, [bsize, b, r, r]
+#    X = tf.concat([tf.squeeze(x) for x in X], 2)  # bsize, b, a*r, r
+#    X = tf.split(X, b, axis=1)  # b, [bsize, a*r, r]
+#    X = tf.concat([tf.squeeze(x) for x in X], 2)  #bsize, a*r, b*r
+#    return tf.reshape(X, [-1, a*r, b*r, 1])
+#
+#def pixel_shuffler(X, scale, channels, activation=tf.identity, name=None):
+#    # Main OP that you can arbitrarily use in you tensorflow code
+#    if channels>1:
+#        Xc = tf.split(X, channels//(scale**2), axis=3)
+#        X = tf.concat([_phase_shift(x, scale) for x in Xc], axis=3)
+#    else:
+#        X = _phase_shift(X, r)
+#    return activation(X, name=name)
 

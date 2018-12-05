@@ -4,3 +4,4 @@ checkpoints
 *.txt
 __pycache__/
 .idea/
+poster_images/

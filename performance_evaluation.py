@@ -135,3 +135,27 @@ def compute_metrics(bboxes_pr, scores_pr, bboxes_gt, classes_gt):
     precision, recall = performance_metric(bboxes_pr, scores_pr, bboxes_gt, classes_gt)
 
     return precision, recall
+
+
+def compute_metrics_module(bboxes_pr, scores_pr, bboxes_gt, classes_gt):
+    batch_size = scores_pr.shape[0]
+    true_pos_general = np.zeros((100,1))
+    recall_general = np.zeros((100,1))
+
+    for i, class_obj in enumerate(classes_gt):
+        class_pr = np.argmax(scores_pr[i])
+        print(class_pr, class_obj)
+        if class_pr!=class_obj or np.max(scores_pr[i])<0.3:
+           continue
+        bbox_gt = bboxes_gt[i]
+        bbox_pr = bboxes_pr[i]
+        bbox_gt = box(bbox_gt[0], bbox_gt[1], bbox_gt[2], bbox_gt[3])
+        bbox_pr = box(bbox_pr[0], bbox_pr[1], bbox_pr[2], bbox_pr[3])
+        intersection_pred_gt = bbox_gt.intersection(bbox_pr)
+        union_pred_gt = bbox_gt.union(bbox_pr)
+        iou_pred_gt = intersection_pred_gt.area / union_pred_gt.area
+        true_pos_general[:int(100*iou_pred_gt)]+=1
+
+    precision = np.round(true_pos_general / float(batch_size), 2)
+    recall = np.round(true_pos_general / float(batch_size), 2)
+    return precision, recall

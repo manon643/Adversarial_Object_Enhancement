@@ -21,11 +21,10 @@ def get_parser():
 def image_chipper(parent_img_name, output_dir):
     """ Chips the full images and saves them into the output directory """
     img_arr = np.asarray(Image.open(parent_img_name))
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        print("{} created".format(output_dir)) 
     img_name = os.path.splitext(os.path.split(parent_img_name)[1])[0]
     img_name = os.path.join(output_dir, img_name+'.jpeg')
+    img_arr_ = Image.fromarray(img_arr)
+    img_arr_.save(img_name)
     return img_name, img_arr.shape[0], img_arr.shape[1] 
 
 def function_img(output_dir):
@@ -35,15 +34,24 @@ def function_img(output_dir):
             ground_truth = json.load(annot_file)
         gt = []
         for obj in ground_truth:
-            gt.append([obj[1], [obj[0][0]/h, obj[0][1]/w, obj[0][2]/h, obj[0][3]/w]])
-        with open(name[:-5]+".json", "w") as output_file:
-            json.dump(gt, output_file)
+            area = (obj[0][3] - obj[0][1])/w * (obj[0][2] - obj[0][0])/h
+            if area>0.02:
+                continue
+            gt.append([[obj[0][0]/h, obj[0][1]/w, obj[0][2]/h, obj[0][3]/w], obj[1]])
+        if not gt:
+            os.remove(name)
+        else:
+            with open(name[:-5]+".json", "w") as output_file:
+                json.dump(gt, output_file)
     return aux
 
 if __name__ == '__main__':
     args_set = get_parser().parse_args()
     imgs_name = glob.glob(os.path.join(args_set.images_dir, '*.jpeg'))
     print(len(imgs_name))
+    if not os.path.exists(args_set.output_dir):
+        os.makedirs(args_set.output_dir)
+        print("{} created".format(args_set.output_dir)) 
     aux = function_img(args_set.output_dir)
     #for img in imgs_name:
     #    aux(img)
