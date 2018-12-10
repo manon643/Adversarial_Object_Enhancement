@@ -8,8 +8,6 @@ import argparse
 import os
 from PIL import Image
 
-from detectors import SSDResNet
-from resnet import ResNet50
 from performance_evaluation import compute_metrics_module as compute_metrics
 
 from ROIPooler import ROIPooler
