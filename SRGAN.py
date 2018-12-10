@@ -71,44 +71,51 @@ class SRGAN:
 
             net = tf.layers.conv2d(net, df_dim * 2, (4, 4), (2, 2), activation=None, padding='SAME', kernel_initializer=w_init,
                  bias_initializer=b_init, name='h1/c')
-            net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=gamma_init, name='h1/bn')
+            net = tf.layers.batch_normalization(net, training=True, gamma_initializer=gamma_init, name='h1/bn')
             net = lrelu(net)
+            net = tf.layers.dropout(net, rate=0.2, training=is_training)
             net = tf.layers.conv2d(net, df_dim * 4, (4, 4), (2, 2), activation=None, padding='SAME', kernel_initializer=w_init,
                  bias_initializer=b_init, name='h2/c')
-            net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=gamma_init, name='h2/bn')
+            net = tf.layers.batch_normalization(net, training=True, gamma_initializer=gamma_init, name='h2/bn')
             net = lrelu(net)
+            net = tf.layers.dropout(net, rate=0.2, training=is_training)
             net = tf.layers.conv2d(net, df_dim * 8, (4, 4), (2, 2), activation=None, padding='SAME', kernel_initializer=w_init,
                  bias_initializer=b_init, name='h3/c')
-            net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=gamma_init, name='h3/bn')
+            net = tf.layers.batch_normalization(net, training=True, gamma_initializer=gamma_init, name='h3/bn')
             net = lrelu(net)
+            net = tf.layers.dropout(net, rate=0.2, training=is_training)
             net = tf.layers.conv2d(net, df_dim * 16, (4, 4), (2, 2), activation=None, padding='SAME', kernel_initializer=w_init,
                  bias_initializer=b_init, name='h4/c')
-            net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=gamma_init, name='h4/bn')
+            net = tf.layers.batch_normalization(net, training=True, gamma_initializer=gamma_init, name='h4/bn')
             net = lrelu(net)
+            net = tf.layers.dropout(net, rate=0.2, training=is_training)
             net = tf.layers.conv2d(net, df_dim * 32, (4, 4), (2, 2), activation=None, padding='SAME', kernel_initializer=w_init,
                  bias_initializer=b_init, name='h5/c')
-            net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=gamma_init, name='h5/bn')
+            net = tf.layers.batch_normalization(net, training=True, gamma_initializer=gamma_init, name='h5/bn')
             net = lrelu(net)
+            net = tf.layers.dropout(net, rate=0.2, training=is_training)
             net = tf.layers.conv2d(net, df_dim * 16, (1, 1), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init,
                  bias_initializer=b_init, name='h6/c')
-            net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=gamma_init, name='h6/bn')
+            net = tf.layers.batch_normalization(net, training=True, gamma_initializer=gamma_init, name='h6/bn')
             net = lrelu(net)
+            net = tf.layers.dropout(net, rate=0.2, training=is_training)
             net = tf.layers.conv2d(net, df_dim * 8, (1, 1), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init,
                  bias_initializer=b_init, name='h7/c')
-            net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=gamma_init, name='h7/bn')
+            net = tf.layers.batch_normalization(net, training=True, gamma_initializer=gamma_init, name='h7/bn')
             net_h7 = net
+            net = tf.layers.dropout(net, rate=0.2, training=is_training)
 
             net = tf.layers.conv2d(net, df_dim * 2, (1, 1), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init, bias_initializer=b_init,
                     name='res/c')
-            net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=gamma_init, name='res/bn')
+            net = tf.layers.batch_normalization(net, training=True, gamma_initializer=gamma_init, name='res/bn')
             net = lrelu(net)
             net = tf.layers.conv2d(net, df_dim * 2, (3, 3), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init, bias_initializer=b_init,
                     name='res/c2')
-            net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=gamma_init, name='res/bn2')
+            net = tf.layers.batch_normalization(net, training=True, gamma_initializer=gamma_init, name='res/bn2')
             net = lrelu(net)
             net = tf.layers.conv2d(net, df_dim * 8, (3, 3), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init, bias_initializer=b_init,
                     name='res/c3')
-            net = tf.layers.batch_normalization(net, training=is_training, gamma_initializer=gamma_init, name='res/bn3')
+            net = tf.layers.batch_normalization(net, training=True, gamma_initializer=gamma_init, name='res/bn3')
 
             ### Branch 1
             net_h8 = net_h7 + net
@@ -120,18 +127,18 @@ class SRGAN:
 
             ### Branch 2
             net_b2 = tf.layers.flatten(net_h8, name='b2/flatten')
-            net_b2 = tf.layers.dense(net_b2, units=self.n_classes, activation=None, kernel_initializer=w_init, name='b2/dense')
+            net_b2 = tf.layers.dense(net_b2, units=self.n_classes+4, activation=None, kernel_initializer=w_init, name='b2/dense')
             ### Branch 3
-            net_b3 = tf.layers.flatten(net_h8, name='b3/flatten')
-            net_b3 = tf.layers.dense(net_b3, units=4, activation=tf.sigmoid, kernel_initializer=w_init, name='b3/dense')
-            #Summary
+            #net_b3 = tf.layers.flatten(net_h8, name='b3/flatten')
+            #net_b3 = tf.layers.dense(net_b3, units=4, activation=tf.sigmoid, kernel_initializer=w_init, name='b3/dense')
+            # Summary
             b2_dense_weights = tf.get_default_graph().get_tensor_by_name('discriminator/b2/dense/kernel:0')
             tf.summary.histogram("b2_dense_w", b2_dense_weights)
-            b3_dense_weights = tf.get_default_graph().get_tensor_by_name('discriminator/b3/dense/kernel:0')
-            tf.summary.histogram("b3_dense_w", b3_dense_weights)
+            #b3_dense_weights = tf.get_default_graph().get_tensor_by_name('discriminator/b3/dense/kernel:0')
+            #tf.summary.histogram("b3_dense_w", b3_dense_weights)
             # Splitting
-            img_class = net_b2
-            img_bbox = net_b3
+            img_class = net_b2[:, 4:]
+            img_bbox  = net_b2[:, :4]
 
         return logits, img_class, img_bbox
 
