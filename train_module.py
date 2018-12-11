@@ -39,7 +39,7 @@ def get_parser():
 
 def main():
     img_shape = (224, 224)
-    new_shape = (256, 256)
+    new_shape = (100, 100)
     batch_size = (24)
     number_iterations = 1000
     lr_init = 1e-4
@@ -70,7 +70,7 @@ def main():
 
     # For testing
     lr_rois_ph = tf.placeholder(tf.float32, [None, new_shape[0]//4, new_shape[1]//4, 3], name="lr_rois")
-    
+
     # Heat map TODO
     # heat_map_model = HeatMapModel()
     # heat_map = heat_map_model.output(x_train)
@@ -88,9 +88,9 @@ def main():
 
     # SRGAN
     srgan = SRGAN(21)
-    down_rois = srgan.downsample(gt_rois, (new_shape[0]//4, new_shape[1]//4)) 
+    down_rois = srgan.downsample(gt_rois, (new_shape[0]//4, new_shape[1]//4))
     lr_rois = tf.cond(is_training_ph, lambda:down_rois, lambda:lr_rois_ph)
-    lr_rois = tf.Print(lr_rois, [is_training_ph], "IS TRAINING")
+    #lr_rois = tf.Print(lr_rois, [is_training_ph], "IS TRAINING")
     hr_rois = gt_rois
     sr_rois_train = srgan.generator(lr_rois, is_training=True)
     sr_rois_test = srgan.generator(lr_rois, is_training=False, reuse=True)
@@ -103,7 +103,7 @@ def main():
     real_logits, hr_pr_class_train, hr_pr_bbox_train = srgan.discriminator(hr_rois, is_training=True, reuse=True)
     _, sr_pr_class_test, sr_pr_bbox_test = srgan.discriminator(sr_rois, is_training=False, reuse=True)
     _, hr_pr_class_test, hr_pr_bbox_test = srgan.discriminator(hr_rois, is_training=False, reuse=True)
-    
+
     #hr_pr_class =hr_pr_class_train #tf.cond(is_training_ph, lambda:hr_pr_class_train, lambda:hr_pr_class_test)
     #sr_pr_class =sr_pr_class_train #tf.cond(is_training_ph, lambda:sr_pr_class_train, lambda:sr_pr_class_test)
     #hr_pr_bbox =  hr_pr_bbox_train # tf.cond(is_training_ph, lambda:hr_pr_bbox_train, lambda:hr_pr_bbox_test)
@@ -124,12 +124,12 @@ def main():
         mse_loss = tf.losses.mean_squared_error(labels=gt_rois, predictions=sr_rois)
         # Classifying loss
         cls_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=gt_rois_class, logits=hr_pr_class))
-        # Localisation loss TODO
-        loc_loss = srgan.localization_loss(sr_pr_bbox, gt_rois_bboxes)
-        loc_loss2 = srgan.localization_loss(hr_pr_bbox, gt_rois_bboxes)
+        # Localisation loss
+        loc_loss = srgan.localization_loss(sr_pr_bbox, gt_rois_bboxes, gt_rois_class)
+        loc_loss2 = srgan.localization_loss(hr_pr_bbox, gt_rois_bboxes, gt_rois_class)
 
         gen_loss = 1e-3*gen_loss_adv + mse_loss
-        dis_loss = dis_loss_adv + 100*loc_loss + 0.1*cls_loss
+        dis_loss = dis_loss_adv + 1*loc_loss + cls_loss
 
         total_loss = gen_loss + dis_loss #+ heat_map_loss
 
@@ -162,7 +162,7 @@ def main():
         with tf.control_dependencies(update_ops_gen):
             gen_op_mse = optimizer_gen_init.minimize(mse_loss, var_list=gvars,
                                             global_step=global_step)
- 
+
         with tf.control_dependencies(update_ops_gen):
             gen_op = optimizer_gen.minimize(gen_loss, var_list=gvars,
                                         global_step=global_step)
@@ -182,7 +182,7 @@ def main():
     tf.summary.scalar('dis_loss_adv', dis_loss_adv)
     tf.summary.scalar('dis_loss_loc', loc_loss)
     tf.summary.scalar('dis_loss_loc2', loc_loss2)
-    
+
     tf_image_overlaid_detected = utils.overlay_bboxes(sr_pr_bbox, sr_rois)
     tf_image_overlaid_detected_gt = utils.overlay_bboxes(hr_pr_bbox, hr_rois)
     tf_image_overlaid_gt = utils.overlay_bboxes(gt_rois_bboxes, gt_rois)
@@ -211,7 +211,7 @@ def main():
     # Execute the graph
     img_names = glob.glob('{}/{}'.format(args.train_dir, '*.jpeg'))
     print("Found {} images in {}".format(len(img_names),args.train_dir))
-    valid_names = glob.glob('{}/{}'.format(args.train_dir, '*.jpeg'))
+    valid_names = glob.glob('{}/{}'.format(args.test_dir, '*.jpeg'))
     print("Found {} images in {}".format(len(valid_names), args.test_dir))
     test_img = np.random.choice(img_names)
     img_names.remove(test_img)
@@ -223,28 +223,27 @@ def main():
         train_writer = tf.summary.FileWriter(os.path.join(args.summary_dir, args.run, "train"), sess.graph)
         test_writer = tf.summary.FileWriter(os.path.join(args.summary_dir, args.run, "test"), sess.graph)
         # Pretrain
-        if args.save_test: 
+        if args.save_test:
             train_img_tensor, gt_bbox_tensor, gt_class_tensor = utils.batch_reader_list([train_img], 0,
                                                                                        label_map, (224, 224),
                                                                                        1)
-            roi_pooler = ROIPooler(train_img_tensor, (new_shape[0], new_shape[1]))
+            roi_pooler = ROIPooler((new_shape[0], new_shape[1]))
             train_rois_tensor, train_class, train_bbox = roi_pooler.np_manual_pooling(train_img_tensor,
                                                                         gt_class_tensor,
                                                                         gt_bbox_tensor, random=True)
-            print(label_map, train_class[0])
             feed_dict_zeros_train = {gt_rois: train_rois_tensor, gt_rois_class: train_class, is_training_ph:True,
                                      gt_rois_bboxes: train_bbox , lr_rois_ph:np.zeros((1,new_shape[0]//4,new_shape[1]//4,3))}
             #Saving full img
             new_name_train = os.path.join(folder, "training_"+train_img.split("/")[-1])[:-5]
             img = Image.fromarray(train_img_tensor[0])
             img.save(new_name_train+".jpeg")
-            
+
             #Saving roi
             roi_img = Image.fromarray(np.uint8(train_rois_tensor[0]*127.5+127.5))
             roi_img.save(new_name_train+"_roi.jpeg")
-            
+
             #Saving sr and lr
-            sr_img, lr_img = sess.run([sr_rois, lr_rois], feed_dict = feed_dict_zeros_train) 
+            sr_img, lr_img = sess.run([sr_rois, lr_rois], feed_dict = feed_dict_zeros_train)
             lr_img_ = Image.fromarray(np.uint8(lr_img[0]*127.5+127.5))
             lr_img_.save(new_name_train+"_lr.jpeg")
             sr_img_ = Image.fromarray(np.uint8(sr_img[0]*127.5+127.5))
@@ -254,27 +253,27 @@ def main():
             test_img_tensor, gt_bbox_tensor, gt_class_tensor = utils.batch_reader_list([test_img], 0,
                                                                                        label_map, (224, 224),
                                                                                        1)
-            roi_pooler_small = ROIPooler(test_img_tensor, (new_shape[0]//4, new_shape[1]//4))
+            roi_pooler_small = ROIPooler((new_shape[0]//4, new_shape[1]//4))
             test_rois_tensor, test_class, _ = roi_pooler_small.np_manual_pooling(test_img_tensor,
-                                                                        gt_class_tensor,
-                                                                        gt_bbox_tensor, random=False)
-            feed_dict_zeros_test = {gt_rois: np.zeros((1,new_shape[0],new_shape[1],3)), gt_rois_class: np.zeros((1)), is_training_ph:False,
+                                                                                 gt_class_tensor,
+                                                                                 gt_bbox_tensor, random=False)
+            feed_dict_zeros_test = {gt_rois: np.zeros((1, new_shape[0], new_shape[1],3)), gt_rois_class: np.zeros((1)), is_training_ph:False,
                                gt_rois_bboxes: np.zeros((1,4)), lr_rois_ph:test_rois_tensor}
             #Saving full img
             new_name_test = os.path.join(folder, "testing_"+test_img.split("/")[-1])[:-5]
             img = Image.fromarray(test_img_tensor[0])
             img.save(new_name_test+".jpeg")
-            
+
             #Saving roi
             lr_img = Image.fromarray(np.uint8(test_rois_tensor[0]*127.5+127.5))
             lr_img.save(new_name_test+"_lr.jpeg")
-            
+
             #Saving sr
-            sr_img = sess.run(sr_rois, feed_dict = feed_dict_zeros_test) 
+            sr_img = sess.run(sr_rois, feed_dict = feed_dict_zeros_test)
             sr_img_ = Image.fromarray(np.uint8(sr_img[0]*127.5+127.5))
             sr_img_.save(new_name_test+"_sr.jpeg")
-            
-        pre_train_epoch = 10#10#83#00#number_iterations# 2 #if step else 0
+
+        pre_train_epoch = 100#2#number_iterations# 2 #if step else 0
         for epoch_id in range(0, pre_train_epoch):
             np.random.shuffle(img_names)
             for iteration_id in range(0, len(img_names)-batch_size, batch_size):
@@ -282,7 +281,7 @@ def main():
                 img_tensor, gt_bbox_tensor, gt_class_tensor = utils.batch_reader_list(img_names, iteration_id,
                                                                                       label_map, img_shape,
                                                                                       batch_size)
-                roi_pooler = ROIPooler(img_tensor, new_shape)
+                roi_pooler = ROIPooler(new_shape)
                 rois_tensor, rois_class_tensor, rois_bboxes_tensor = roi_pooler.np_manual_pooling(img_tensor,
                                                                                                   gt_class_tensor,
                                                                                                   gt_bbox_tensor)
@@ -291,12 +290,12 @@ def main():
                 #Updating
                 summary, _, mse_loss_value, step = sess.run([merged, gen_op_mse, mse_loss, global_step], feed_dict=feed_dict)
                 train_writer.add_summary(summary, step)
-                print("Loss at pretrain iteration {} {} : {}".format(epoch_id, iteration_id / batch_size, mse_loss_value))
+                print("Loss at pretrain iteration {} {} : {}".format(epoch_id, step, mse_loss_value))
                 if iteration_id%1==0:
-                    img_tensor, gt_bbox_tensor, gt_class_tensor = utils.batch_reader_list(valid_names, iteration_id,
+                    img_tensor, gt_bbox_tensor, gt_class_tensor = utils.batch_reader_list(valid_names, 0,
                                                                                           label_map, img_shape,
                                                                                           batch_size)
-                    roi_pooler = ROIPooler(img_tensor, (new_shape[0]//4, new_shape[1]//4))
+                    roi_pooler = ROIPooler((new_shape[0]//4, new_shape[1]//4))
                     rois_tensor, rois_class_tensor, rois_bboxes_tensor = roi_pooler.np_manual_pooling(img_tensor,
                                                                                                       gt_class_tensor,
                                                                                                       gt_bbox_tensor)
@@ -307,12 +306,12 @@ def main():
                     test_writer.add_summary(summary, step)
             if args.save_test:
                 #Saving sr
-                sr_img = sess.run(sr_rois, feed_dict = feed_dict_zeros_test) 
+                sr_img = sess.run(sr_rois, feed_dict = feed_dict_zeros_test)
                 sr_img_ = Image.fromarray(np.uint8(sr_img[0]*127.5+127.5))
                 sr_img_.save(new_name_test+"_{}_sr.jpeg".format(epoch_id))
 
                 #Saving sr and lr
-                sr_img = sess.run(sr_rois, feed_dict = feed_dict_zeros_train) 
+                sr_img = sess.run(sr_rois, feed_dict = feed_dict_zeros_train)
                 sr_img_ = Image.fromarray(np.uint8(sr_img[0]*127.5+127.5))
                 sr_img_.save(new_name_train+"_{}_sr.jpeg".format(epoch_id))
         #Training
@@ -328,7 +327,7 @@ def main():
                 img_tensor, gt_bbox_tensor, gt_class_tensor = utils.batch_reader_list(img_names, iteration_id,
                                                                                       label_map, img_shape,
                                                                                       batch_size)
-                roi_pooler = ROIPooler(img_tensor, new_shape)
+                roi_pooler = ROIPooler(new_shape)
                 rois_tensor, rois_class_tensor, rois_bboxes_tensor = roi_pooler.np_manual_pooling(img_tensor,
                                                                                                   gt_class_tensor,
                                                                                                   gt_bbox_tensor)
@@ -341,15 +340,17 @@ def main():
                 summary, _, gen_loss_value, loss_value, step = sess.run([merged, gen_op, gen_loss, total_loss, global_step], feed_dict=feed_dict)
                 train_writer.add_summary(summary, step)
                 bboxes_pr, scores_pr = sess.run([sr_pr_bbox, sr_pr_class], feed_dict=feed_dict)
-                precision, recall = compute_metrics(bboxes_pr, scores_pr, rois_bboxes_tensor, rois_class_tensor)
-                print("Loss at iteration {} {} : {} - gen:{} - dis:{}".format(epoch_id, iteration_id / batch_size, loss_value, gen_loss_value, dis_loss_value))
-                print('Training Accuracy at epoch {} iteration {} at %50 IOU : {},  Recall at %50 IOU : {}'.format(
-                    epoch_id, iteration_id, precision[50], recall[50]))
-                if epoch_id%2==0:
-                    img_tensor, gt_bbox_tensor, gt_class_tensor = utils.batch_reader_list(valid_names, epoch_id,
+                names_batch = img_names[iteration_id:iteration_id+batch_size]
+                precision, recall = compute_metrics(bboxes_pr, scores_pr, rois_bboxes_tensor, rois_class_tensor, names_batch, label_map, "train.csv", step, args.run)
+                print("Loss at epoch {} step {} : {} - gen:{} - dis:{}".format(epoch_id, step, loss_value, gen_loss_value, dis_loss_value))
+                print('Training Accuracy at epoch {} step {} at %50 IOU : {},  Recall at %50 IOU : {}'.format(
+                    epoch_id, step, precision[50], recall[50]))
+            if epoch_id%2==0:
+                for iteration_id in range(0, len(valid_names)-batch_size, batch_size):
+                    img_tensor, gt_bbox_tensor, gt_class_tensor = utils.batch_reader_list(valid_names, iteration_id,
                                                                                           label_map, img_shape,
                                                                                           batch_size)
-                    roi_pooler = ROIPooler(img_tensor, (new_shape[0]//4, new_shape[1]//4))
+                    roi_pooler = ROIPooler((new_shape[0]//4, new_shape[1]//4))
                     rois_tensor, rois_class_tensor, rois_bboxes_tensor = roi_pooler.np_manual_pooling(img_tensor,
                                                                                                       gt_class_tensor,
                                                                                                       gt_bbox_tensor)
@@ -358,22 +359,23 @@ def main():
                     #Updating
                     summary, bboxes_pr, scores_pr, step = sess.run([merged, sr_pr_bbox, sr_pr_class, global_step], feed_dict=feed_dict)
                     test_writer.add_summary(summary, step)
-                    precision, recall = compute_metrics(bboxes_pr, scores_pr, rois_bboxes_tensor, rois_class_tensor)
-                    print('Validation Accuracy at epoch {} iteration {} at %50 IOU : {},  Recall at %50 IOU : {}'.format(epoch_id, iteration_id, precision[50], recall[50]))
+                    names_batch = valid_names[iteration_id:iteration_id+batch_size]
+                    precision, recall = compute_metrics(bboxes_pr, scores_pr, rois_bboxes_tensor, rois_class_tensor, names_batch, label_map, "valid.csv", step, args.run)
+                    print('Validation Accuracy at epoch {} step {} at %50 IOU : {},  Recall at %50 IOU : {}'.format(epoch_id, step, precision[50], recall[50]))
 
                 #except Exception as error:
                 #    print(error)
                 #    continue
             if args.save_test:
                 #Saving sr
-                sr_img = sess.run(sr_rois, feed_dict = feed_dict_zeros_test) 
+                sr_img = sess.run(sr_rois, feed_dict = feed_dict_zeros_test)
                 sr_img_ = Image.fromarray(np.uint8(sr_img[0]*127.5+127.5))
                 sr_img_.save(new_name_test+"_{}_sr_train.jpeg".format(epoch_id))
                 #Saving sr and lr
-                sr_img = sess.run(sr_rois, feed_dict = feed_dict_zeros_train) 
+                sr_img = sess.run(sr_rois, feed_dict = feed_dict_zeros_train)
                 sr_img_ = Image.fromarray(np.uint8(sr_img[0]*127.5+127.5))
                 sr_img_.save(new_name_train+"_{}_sr_train.jpeg".format(epoch_id))
-            
+
 
 if __name__ == '__main__':
     main()

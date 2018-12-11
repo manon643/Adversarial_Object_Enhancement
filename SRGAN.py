@@ -55,7 +55,7 @@ class SRGAN:
             n = pixel_shuffler(n, scale=2, channels=256, activation=tf.nn.relu, name='pixelshufflerx2/2')
 
             sr_img = tf.layers.conv2d(n, 3, (1, 1), (1, 1), activation=tf.nn.tanh, padding='SAME', kernel_initializer=w_init, name='out')
-            
+
             return sr_img
 
     def discriminator(self, input_images, is_training=True, reuse=False):
@@ -127,7 +127,7 @@ class SRGAN:
 
             ### Branch 2
             net_b2 = tf.layers.flatten(net_h8, name='b2/flatten')
-            net_b2 = tf.layers.dense(net_b2, units=self.n_classes+4, activation=None, kernel_initializer=w_init, name='b2/dense')
+            net_b2 = tf.layers.dense(net_b2, units=self.n_classes+4, activation=tf.sigmoid, kernel_initializer=w_init, name='b2/dense')
             ### Branch 3
             #net_b3 = tf.layers.flatten(net_h8, name='b3/flatten')
             #net_b3 = tf.layers.dense(net_b3, units=4, activation=tf.sigmoid, kernel_initializer=w_init, name='b3/dense')
@@ -159,9 +159,9 @@ class SRGAN:
             loss_collection=None,
             reduction=tf.losses.Reduction.NONE
         ), axis=1)
- 
-    def localization_loss(self, predictions, targets):
-        #TODO regress the log width and height
-    #    new_targets_list = [targets[:, 0], targets[:, 1], tf.log(targets[:, 2] - targets[:, 0]), tf.log(targets[:, 3] - targets[:, 1])]
-     #   targets = tf.stack(new_targets_list, axis=1)
-        return tf.reduce_mean(self._smooth_l1(predictions, targets))
+
+    def localization_loss(self, predictions, targets, gt_classes):
+        # regress the log width and height
+        #new_targets_list = [targets[:, 0], targets[:, 1], tf.log(targets[:, 2] - targets[:, 0]), tf.log(targets[:, 3] - targets[:, 1])]
+        pos_samples = tf.expand_dims(tf.to_float(tf.math.greater(gt_classes, 0)), axis=-1)
+        return tf.reduce_mean(self._smooth_l1(predictions, targets, weights=pos_samples))
