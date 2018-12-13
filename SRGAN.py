@@ -126,7 +126,10 @@ class SRGAN:
             logits = net_ho
 
             ### Branch 2
-            net_b2 = tf.layers.flatten(net_h8, name='b2/flatten')
+            net_b2 = tf.layers.conv2d(net_h8, df_dim * 8, (3, 3), (1, 1), activation=None, padding='SAME', kernel_initializer=w_init, bias_initializer=b_init,
+                    name='b2conv')
+            net_b2 = tf.layers.flatten(net_b2, name='b2/flatten')
+            net_b2 = tf.layers.dense(net_b2, units=128, activation=tf.sigmoid, kernel_initializer=w_init, name='b2/dense1')
             net_b2 = tf.layers.dense(net_b2, units=self.n_classes+4, activation=tf.sigmoid, kernel_initializer=w_init, name='b2/dense')
             ### Branch 3
             #net_b3 = tf.layers.flatten(net_h8, name='b3/flatten')

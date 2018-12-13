@@ -15,12 +15,23 @@ class ROIPooler:
     def set_anchor_sizes_from_data(self):
         raise NotImplementedError
 
+    def random_pooling(self, imgs):
+        indexes = list(range(len(imgs)))
+        self.mask = []
+        for img in imgs:
+            self.mask.append(np.zeros_like(img))
+        neg_samples, _, _ = self.neg_pooling(imgs, indexes, random=False)
+        return neg_samples
+    
     def np_manual_pooling(self, imgs, classes, bboxes, random=True):
         indexes = list(range(len(imgs)))
-        pos_ind = [i for i in indexes if np.random.random()<=1.0/3.0]
+        pos_ind = [i for i in indexes if np.random.random()<=31.0/32.0]
+        #print("NB POS", len(pos_ind))
         neg_ind = [i for i in indexes if i not in pos_ind]
         #return self.pos_pooling(imgs, classes, bboxes, pos_ind, random=random)
-        pos_samples, pos_classes, pos_bboxes = self.pos_pooling(imgs, classes, bboxes, pos_ind, random=random)
+        #pos_samples, pos_classes, pos_bboxes = self.pos_pooling(imgs, classes, bboxes, pos_ind, random=random)
+        pos_samples, pos_classes, pos_bboxes = self.pos_pooling_imbalanced(imgs, classes, bboxes, pos_ind)
+        if not neg_ind: return pos_samples, pos_classes, pos_bboxes
         self.compute_mask_neg(imgs, bboxes, neg_ind)
         #return self.neg_pooling(imgs, neg_ind)
         neg_samples, neg_classes, neg_bboxes = self.neg_pooling(imgs, neg_ind)
@@ -44,6 +55,81 @@ class ROIPooler:
                 min_y = int(obj_bbox[0] * img.shape[0])
                 mask_[min_y:max_y, min_x:max_x, :] = 1
             self.mask.append(mask_)
+
+    def pos_pooling_imbalanced(self, imgs, classes, bboxes, pos_ind):
+        """
+        :param imgs: batch_size, h, w, c
+        :param classes: list of [None]
+        :param bboxes: list of [None, 4]
+        :return:
+        pooled_images, [new_batch_size, new_size, new_size, c]
+        new_classes, [new_batch_size]
+        new_bbox, [new_batch_size, 4]
+        """
+
+        #print(imgs.shape, len(classes), len(bboxes))
+        pooled_imgs, new_classes, new_bboxes = [], [], []
+
+        #Creates a dictionnary sorting objects and their indexes by label
+        dict_img = {}
+        for id_img in pos_ind:
+            for i, label in enumerate(classes[id_img]):
+                if label not in dict_img:
+                    dict_img[label] = [(id_img, i)]
+                else:
+                    dict_img[label].append((id_img, i))
+        #print(dict_img)
+        #print(dict_img.keys())
+        for id_obj in range(len(pos_ind)):
+            label = np.random.choice(list(dict_img.keys()))
+            i = np.random.choice(len(dict_img[label]))
+            id_img, id_obj = dict_img[label][i]
+            img = imgs[id_img]
+            obj_bbox = bboxes[id_img][id_obj]
+            centroid_x = int((obj_bbox[1] + obj_bbox[3]) / 2 * img.shape[1])
+            centroid_y = int((obj_bbox[0] + obj_bbox[2]) / 2 * img.shape[0])
+            offset_x = int(np.random.normal()*10)
+            offset_y = int(np.random.normal()*10)
+            if centroid_x+offset_x < img.shape[1] and centroid_x+offset_x>=0:
+                centroid_x += offset_x
+            else:
+                offset_x = 0
+            if centroid_y+offset_y < img.shape[0] and centroid_y+offset_y>=0:
+                centroid_y += offset_y
+            else:
+                offset_y = 0
+            anchor_w, anchor_h = self.new_shape
+            min_x = max(0, centroid_x - anchor_h // 2)
+            min_y = max(0, centroid_y - anchor_w // 2)
+            max_x = min(img.shape[1], centroid_x + anchor_h // 2)
+            max_y = min(img.shape[0], centroid_y + anchor_w // 2)
+            cropped_img = img[min_y:max_y, min_x:max_x, :]
+            try:
+               #print(np.min(cropped_img), np.max(cropped_img))
+                if cropped_img.shape[:2] != self.new_shape:
+                   #print("reshape")
+                    img_chip = resize(cropped_img, self.new_shape, anti_aliasing=True)
+                else:
+                    img_chip = cropped_img/255
+               #print(np.min(img_chip), np.max(img_chip))
+            except:
+               #print(centroid_y, centroid_x)
+               #print(img.shape)
+               #print(min_y, max_y, min_x, max_x)
+                print(cropped_img.shape)
+            pooled_imgs.append(img_chip)
+
+            new_classes.append(label)
+
+            new_min_y = max(0, (obj_bbox[0] * img.shape[0] - min_y) / anchor_w)
+            new_min_x = max(0, (obj_bbox[1] * img.shape[1] - min_x) / anchor_h)
+            new_max_y = min(1, (obj_bbox[2] * img.shape[0] - min_y) / anchor_w)
+            new_max_x = min(1, (obj_bbox[3] * img.shape[1] - min_x) / anchor_h)
+
+            new_bboxes.append([new_min_y, new_min_x, new_max_y, new_max_x])
+        if pos_ind:
+            return 2*np.stack(pooled_imgs)-1, np.array(new_classes), np.stack(new_bboxes)
+        return [], [], []
 
     def pos_pooling(self, imgs, classes, bboxes, pos_ind, random=True):
         """
@@ -115,15 +201,18 @@ class ROIPooler:
             return 2*np.stack(pooled_imgs)-1, np.array(new_classes), np.stack(new_bboxes)
         return [], [], []
 
-    def neg_pooling(self, imgs, neg_ind, overlap_cond=0.7):
+    def neg_pooling(self, imgs, neg_ind, overlap_cond=0.7, random=True):
         neg_pooled_imgs = []
         for id_mask, id_img in enumerate(neg_ind):
             img = imgs[id_img]
             i = 0
             while True:
                 anchor_w, anchor_h = self.new_shape
-                centroid_x = np.random.randint(anchor_h//2, img.shape[1]-anchor_h//2)
-                centroid_y = np.random.randint(anchor_w//2, img.shape[0]-anchor_w//2)
+                if random:
+                    centroid_x = np.random.randint(anchor_h//2, img.shape[1]-anchor_h//2)
+                    centroid_y = np.random.randint(anchor_w//2, img.shape[0]-anchor_w//2)
+                else:
+                    centroid_x, centroid_y = 0, 0
                #print(centroid_y, centroid_x)
                #print(img.shape)
                 min_x = max(0, centroid_x - anchor_h // 2)
@@ -142,4 +231,5 @@ class ROIPooler:
                 img_chip = resize(cropped_img, self.new_shape, anti_aliasing=True)
                 neg_pooled_imgs.append(img_chip)
                 break
-        return 2*np.stack(neg_pooled_imgs)-1, np.array([0 for _ in neg_ind]), np.array([[0, 0, 1, 1] for _ in neg_ind])
+        if neg_ind: neg_pooled_imgs = 2*np.stack(neg_pooled_imgs)-1
+        return neg_pooled_imgs, np.array([0 for _ in neg_ind]), np.array([[0, 0, 1, 1] for _ in neg_ind])

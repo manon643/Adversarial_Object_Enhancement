@@ -6,17 +6,6 @@ import numpy as np
 import os
 import pdb
 
-def class_label_mapper(original_label, label_map):
-    """ Maps the original label to an ordered label 
-    """
-    if original_label in label_map:
-       return label_map[original_label]
-    else:
-       label_map[original_label] = label_map['max'] + 1
-       label_map['max'] += 1
-       #print(label_map)
-       return label_map[original_label]
-
 def batch_reader_list(img_names, index, label_map, img_shape, batch_size=1):    
     """ Gets the names of the files and ground truth for images and converts them
         to a tf object.
@@ -34,7 +23,7 @@ def batch_reader_list(img_names, index, label_map, img_shape, batch_size=1):
         ground_truth_class_tensor = np.zeros((len(ground_truth)), np.int64)
         ground_truth_bbox_tensor = np.zeros((len(ground_truth), 4), np.float32)
         for ind, gt_inn in enumerate(ground_truth):
-            ground_truth_class_tensor[ind] = class_label_mapper(gt_inn[1], label_map)
+            ground_truth_class_tensor[ind] = label_map.index(gt_inn[1])
             ground_truth_bbox_tensor[ind, :] = [gt_inn[0][1], gt_inn[0][0], gt_inn[0][3], gt_inn[0][2]]
         ground_truth_all_bboxes.append(ground_truth_bbox_tensor)
         ground_truth_all_classes.append(ground_truth_class_tensor)
@@ -58,7 +47,7 @@ def batch_reader(img_names, index, label_map, img_shape, batch_size=1):
         ground_truth_class_tensor = np.zeros((len(ground_truth)), np.int64)
         ground_truth_bbox_tensor = np.zeros((len(ground_truth), 4), np.float32)
         for ind, gt_inn in enumerate(ground_truth):
-            ground_truth_class_tensor[ind] = class_label_mapper(gt_inn[1], label_map)
+            ground_truth_class_tensor[ind] = label_map.index(gt_inn[1])
             ground_truth_bbox_tensor[ind, :] = [gt_inn[0][1], gt_inn[0][0], gt_inn[0][3], gt_inn[0][2]]
         ground_truth_all_bboxes.append(ground_truth_bbox_tensor)
         ground_truth_all_classes.append(ground_truth_class_tensor)

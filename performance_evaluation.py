@@ -13,6 +13,7 @@ def compute_metrics_module(bboxes_pr, scores_pr, bboxes_gt, classes_gt, names, l
     false_pos_general = 0
     false_neg_general = 0
     true_neg_general = 0
+    iouAll = []
     csv_name = run+csv_name
     write_label_map = not os.path.exists(csv_name)
 
@@ -30,13 +31,15 @@ def compute_metrics_module(bboxes_pr, scores_pr, bboxes_gt, classes_gt, names, l
             intersection_pred_gt = bbox_gt.intersection(bbox_pr)
             union_pred_gt = bbox_gt.union(bbox_pr)
             iou_pred_gt = intersection_pred_gt.area / union_pred_gt.area
+            if class_gt > 0: 
+                iouAll.append(iou_pred_gt)
             if class_gt > 0 and class_pr == class_gt:
                 true_pos_general[:int(100*iou_pred_gt)] += 1
             elif class_gt == 0 and class_pr > 0:
                 false_pos_general += 1
             elif class_gt > 0 and class_pr == 0:
                 false_neg_general += 1
-            else:
+            elif class_gt == 0 and class_pr == 0:
                 true_neg_general += 1
 
             results = [names[i], class_gt, class_pr, iou_pred_gt, step]
@@ -48,4 +51,5 @@ def compute_metrics_module(bboxes_pr, scores_pr, bboxes_gt, classes_gt, names, l
     print("False POS 50/90", false_pos_general)
     print("False Neg 50/90", false_neg_general)
     print("TRUE Neg 50/90", true_neg_general)
+    print("MEAN IOU", np.mean(iouAll))
     return precision, recall
